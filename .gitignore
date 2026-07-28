@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+
+# Claude Code local harness state
+.claude/.cc-writes/
+.claude/settings.local.json
