@@ -9,14 +9,50 @@
 # holds". After adding a check to chunk-check.sh, delete that check in a scratch
 # copy and confirm this suite goes red:
 #
-#   d=$(mktemp -d); cp bin/chunk-check.sh bin/test-chunk-check.sh "$d/"
-#   # ...remove the check in $d/chunk-check.sh...
-#   bash "$d/test-chunk-check.sh"      # MUST fail; if it passes, the check is unpinned
+#   d=$(mktemp -d); mkdir "$d/bin"; cp bin/chunk-check.sh bin/test-chunk-check.sh "$d/bin/"
+#   cp -r templates "$d/templates"     # $TEMPLATES below is bin/../templates —
+#                                       # a flat copy (no templates/ sibling)
+#                                       # false-fails cases 25/38/39 regardless
+#                                       # of what you mutated. Found 2026-07-31
+#                                       # doing exactly this trial for real.
+#   # ...remove the check in $d/bin/chunk-check.sh...
+#   bash "$d/bin/test-chunk-check.sh"  # MUST fail; if it passes, the check is unpinned
 #
 # A 2026-07 audit ran that trial across eight checks and five survived — the
 # green-at-birth refusal, the collection-ERROR refusal, and all three plan-gate
 # parse failures. Cases 26-30 exist because of it. A guarantee this suite does
 # not notice the deletion of is a guarantee this suite does not hold.
+#
+# Two things the 2026-07-29 trial added, both worth not re-learning:
+#   - `bypass`'s original stage guard ("a frozen chunk cannot be bypassed") had
+#     been live and unpinned since it was written. Nothing noticed until the
+#     guard was modified. Pin a check when you touch it, not when you add it.
+#   - The trial's real value was catching a bad test, not a bad check: case 55
+#     asserted the --downgrade stage guard on a fixture that was already
+#     `trivial`, so the already-trivial refusal fired first and produced the
+#     right exit code for the wrong reason. Deleting the stage guard left the
+#     suite green. Hence 55a/55b/55c on separate fixtures. A case that passes
+#     for the wrong reason is worse than a missing one: it reads as coverage.
+#
+# And a third class, from 2026-07-29's second pass (cases 58/59). Both bugs it
+# found were invisible here because THE FIXTURE WORLD IS MORE UNIFORM THAN THE
+# REAL ONE: every fixture chunk directory is stamped, so "no unfinished chunk
+# dir" and "the queue is empty" are the same statement in a fixture and wildly
+# different in a 24-chunk feature where 22 rows have no directory yet; and every
+# fixture left its work uncommitted, so a record that could only see the worktree
+# looked complete until a human committed first — which is the design's intended
+# exit. Both were caught by running the new code against the real chunk that
+# motivated it, after this suite was green. Green here means no fixture noticed.
+# Run it against the real thing before believing it.
+#
+# A fourth class, from 2026-07-29's third pass (case 25). An assertion can be
+# blind to its own subject: `.some_key | type` is `"null"` in jq whether the key
+# was materialised as null or was never written at all, so six migration
+# assertions written that way passed no matter what the migration did. The
+# mutation that exposed it deleted a migration line and the suite stayed green.
+# ASSERT ON has(), not on the type of a missing key — and when a new assertion
+# uses the same shape as an existing one, note that the shape itself has never
+# been mutation-tested just because its neighbours are old.
 #
 # Zero language dependencies: the fixture "runner" is a shell script inside a
 # throwaway git repo, so this suite runs anywhere git and jq do. A suite that
@@ -74,6 +110,32 @@ assert_eq() { # assert_eq <label> <actual> <want>
   else
     printf 'FAIL  %s (got %s, want %s)\n' "$1" "$2" "$3"
     FAILED=$((FAILED+1))
+  fi
+}
+
+# expect/expect_absent re-run the command, which is wrong for a one-shot
+# transition: `gate approved` is legal exactly once, and the second call fails
+# from stage 'done' for an unrelated reason. These assert over output captured
+# from a single run instead.
+assert_contains() { # assert_contains <label> <haystack> <needle>
+  if printf '%s' "$2" | grep -qF -- "$3"; then
+    printf 'ok    %s\n' "$1"
+    PASSED=$((PASSED+1))
+  else
+    printf 'FAIL  %s (looking for: %s)\n' "$1" "$3"
+    printf '%s\n' "$2" | sed 's/^/      | /'
+    FAILED=$((FAILED+1))
+  fi
+}
+
+assert_absent() { # assert_absent <label> <haystack> <needle>
+  if printf '%s' "$2" | grep -qF -- "$3"; then
+    printf 'FAIL  %s (output must NOT contain: %s)\n' "$1" "$3"
+    printf '%s\n' "$2" | sed 's/^/      | /'
+    FAILED=$((FAILED+1))
+  else
+    printf 'ok    %s\n' "$1"
+    PASSED=$((PASSED+1))
   fi
 }
 
@@ -160,6 +222,32 @@ write_predictions() { # write_predictions <repo_dir> <verdict> <adjusted>
     "Verdict: $2      (approve | adjust | reject)" \
     "Adjusted: $3     (y/n - was the plan changed as a result of this gate?)" \
     > "$1/$CHUNK/predictions.md"
+}
+
+# The predict-op fixtures need the two halves of predictions.md at different
+# moments: top half filled while the verdict is still blank (that is what
+# `predict` stamps), verdict filled later WITHOUT the top half changing a byte
+# (that is what freeze verifies). Both emit through one top-half printer so
+# the two files cannot drift apart and quietly break the hash comparison the
+# cases exist to exercise.
+predictions_top_lines() {
+  printf '%s\n' \
+    '# plan gate (predict-then-compare)' \
+    '' \
+    '- Expected approach: create the feature file' \
+    '- Expected files touched: src/feature.txt' \
+    '- Biggest risk: none' \
+    ''
+}
+write_blind_predictions() { # top half filled, verdict not yet recorded
+  { predictions_top_lines
+    printf '%s\n' '## Verdict' '' 'Verdict: ___' 'Adjusted: ___'
+  } > "$1/$CHUNK/predictions.md"
+}
+fill_verdict() { # fill_verdict <repo_dir> <verdict> <adjusted> — top half stays byte-identical
+  { predictions_top_lines
+    printf '%s\n' '## Verdict' '' "Verdict: $2" "Adjusted: $3"
+  } > "$1/$CHUNK/predictions.md"
 }
 
 new_fixture() { # new_fixture <name> [oracle_cmd] [tracked|untracked] [size_class]
@@ -277,6 +365,23 @@ commit_all() { # commit_all <repo_dir> <message>
   ( cd "$1" && git add -A && git commit -q --no-gpg-sign -m "$2" ) >/dev/null 2>&1
 }
 
+# The handoff reads sibling chunk directories, not feature.md's queue table —
+# state.json is what the script itself wrote, so the two cannot drift. A fixture
+# that wants a queue therefore has to put one on disk.
+add_sibling() { # add_sibling <repo_dir> <chunk-name> <stage>
+  local dir="$1/docs/chunks/f/$2"
+  mkdir -p "$dir"
+  jq -n --arg c "$2" --arg s "$3" '{
+    schema_version: 8, chunk: $c, stage: $s, size_class: "small",
+    artifacts: "tracked", branch: null, suite_cmd: "true", oracle_cmd: null,
+    oracle_red: null, oracle_green: null, baseline_sha: null,
+    baseline_prev_sha: null, plan_approved_sha: null, test_paths: [],
+    scope_paths: [], test_hashes: {}, deviations: [], blockers: [],
+    bypass_note: null, bypass_base: null, bypass_shipped: null, field_log: null,
+    gates: {plan: null, plan_adjusted: null, review: null}, updated: null
+  }' > "$dir/state.json"
+}
+
 # --- cases -----------------------------------------------------------------
 
 # 1 — clean run: readiness -> freeze -> implement -> verify
@@ -375,11 +480,33 @@ d="$(new_fixture case14)"
 set_state "$d" '.size_class = null'
 expect "14 null size_class: readiness fails, naming it" 1 "size_class not set" -- chunk_check "$d" readiness
 
-# 15 — a commit before the review gate collapses the outer gate
+# 15 — a commit before the review gate is recorded, not blocked. It used to
+# fail verify outright, which also made `gate` (the only op that can
+# acknowledge it) unreachable, since `gate` requires stage `verified` and this
+# was what stood between the chunk and that stage.
 d="$(new_fixture case15)"
 quiet_check "$d" readiness; quiet_check "$d" freeze
 implement "$d"; commit_all "$d" "implement the feature"
-expect "15 commit before review gate: verify fails, naming the commits" 1 "commit(s) since baseline with the review gate not approved" -- chunk_check "$d" verify
+expect "15 commit before review gate: verify passes, stage verified" 0 "stage=verified" -- chunk_check "$d" verify
+assert_eq "15 commit before review gate: gates.review recorded as premature" "$(state_get "$d" .gates.review)" "premature"
+
+# 15b — gate approved refuses a premature chunk without an acknowledgment note
+d="$(new_fixture case15b)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; commit_all "$d" "implement the feature"
+quiet_check "$d" verify
+log_and_gate "$d"
+expect "15b gate approved without a note: refused" 1 "requires a note acknowledging" -- chunk_check "$d" gate approved
+assert_eq "15b gate approved without a note: stage stays verified" "$(state_get "$d" .stage)" "verified"
+
+# 15c — the note is what lets a premature commit close the chunk
+d="$(new_fixture case15c)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; commit_all "$d" "implement the feature"
+quiet_check "$d" verify
+log_and_gate "$d"
+expect "15c gate approved with a note: stage done" 0 "stage=done" -- chunk_check "$d" gate approved "reviewed the bundled commit by hand"
+assert_eq "15c gate approved with a note: gates.review ends approved" "$(state_get "$d" .gates.review)" "approved"
 
 # 16 — the same commit, once the human's review verdict is on record
 d="$(new_fixture case16)"
@@ -405,11 +532,32 @@ expect "18 gate approved from ready: refused" 1 "legal from stage 'verified'" --
 d="$(new_fixture case19)"
 expect "19 bypass with size_class small: refused" 1 "non-negotiable #7" -- chunk_check "$d" bypass "tiny tweak"
 
-# 20 — an unfilled predictions.md is not a plan gate
-d="$(new_fixture case20)"
+# 20 — an unfilled predictions.md is not a plan gate. Standard chunks only
+#      since 2026-07-31: blind predictions were softened to `standard` after
+#      field-log entries 07–12 showed the blanks degrading on smaller chunks.
+#      The fixture pins the size explicitly — the suite default is `small`, so
+#      relying on it here would assert the softened path and read as coverage
+#      of the strict one.
+d="$(new_fixture case20 "bash tests/chunk/oracle.sh" tracked standard)"
 write_predictions "$d" '___' '___'
 quiet_check "$d" readiness
 expect "20 unfilled predictions.md: freeze refused" 1 "unfilled blanks" -- chunk_check "$d" freeze
+
+# 20b — the softened path: a `small` chunk freezes with the prediction blanks
+#       unfilled, but the verdict lines are still parsed and still mandatory.
+#       Three assertions on separate fixtures so each refusal is its own
+#       evidence: blanks tolerated (small), verdict still required (small),
+#       and the tolerance is a warn the operator can see.
+d="$(new_fixture case20b)"
+printf '%s\n' '- Expected approach: ___' '- Expected files touched: ___' \
+  'Verdict: approve' 'Adjusted: n' > "$d/$CHUNK/predictions.md"
+quiet_check "$d" readiness
+expect "20b small chunk, blanks unfilled, verdict recorded: freeze passes" 0 "tolerated below 'standard'" -- chunk_check "$d" freeze
+
+d="$(new_fixture case20c)"
+printf '%s\n' '- Expected approach: ___' 'Adjusted: n' > "$d/$CHUNK/predictions.md"
+quiet_check "$d" readiness
+expect "20c small chunk, blanks tolerated but no Verdict: freeze refused" 1 "no 'Verdict:' line" -- chunk_check "$d" freeze
 
 # 21 — the whole claim of untracked-artifacts mode: the backstop does not care
 #      whether the chunk docs are committed. Every guarantee is pinned to
@@ -466,11 +614,24 @@ expect "24 branch drift: readiness warns, naming both" 0 "branch drift" -- chunk
 d="$(new_fixture case25)"
 set_state "$d" '.schema_version = 2 | .segment = .chunk | del(.chunk) | del(.branch) | del(.artifacts)'
 expect    "25 older schema: readiness warns but proceeds" 0 "stage=ready" -- chunk_check "$d" readiness
-assert_eq "25 older schema: version migrated on the pin" "$(state_get "$d" .schema_version)" "5"
-assert_eq "25 older schema: artifacts key materialised"  "$(state_get "$d" '.artifacts | type')" "null"
-assert_eq "25 older schema: field_log key materialised"  "$(state_get "$d" '.field_log | type')" "null"
+# Compared against the shipped template rather than a literal, so this also pins
+# the two in step: a script that migrates to a version the template does not
+# stamp would make every freshly stamped chunk warn on its first write.
+assert_eq "25 older schema: version migrated to the version the template ships" \
+  "$(state_get "$d" .schema_version)" "$(jq -r .schema_version "$TEMPLATES/state.json")"
+# has(), NOT `| type == "null"`. jq answers `null` for a key that is absent and
+# for a key that is present and null, so the type form cannot tell "materialised"
+# from "never written" — it passes either way. Every assertion here was that
+# shape until a 2026-07-29 mutation trial deleted the bypass_suite migration and
+# the suite stayed green. The materialisation is the whole point of this case:
+# an un-materialised key leaves the older-schema warning firing forever, which
+# is the nagging this migration exists to stop.
+for k in artifacts field_log size_class_corrected bypass_base bypass_shipped bypass_suite predict; do
+  assert_eq "25 older schema: $k key materialised" "$(state_get "$d" "has(\"$k\")")" "true"
+  assert_eq "25 older schema: $k materialised as null" "$(state_get "$d" ".$k")" "null"
+done
 assert_eq "25 older schema: segment key renamed to chunk" "$(state_get "$d" .chunk)" "01-x"
-assert_eq "25 older schema: the old key is gone"          "$(state_get "$d" '.segment | type')" "null"
+assert_eq "25 older schema: the old key is really gone"   "$(state_get "$d" 'has("segment")')" "false"
 
 # --- 26-30: the plan gate and the oracle calibration ------------------------
 # Five checks that a mutation trial showed this suite did not hold: deleting any
@@ -571,14 +732,51 @@ expect "36b re-freeze without the flag: refused" 1 "pass --refreeze" -- chunk_ch
 expect "36b re-freeze with --refreeze: allowed" 0 "stage=approved" -- chunk_check "$d" freeze --refreeze
 
 # --- 37: bypass, the whole path ---------------------------------------------
-# bypass_note is the entire record of a bypassed chunk and the field-log line is
-# the only evidence the ceremony was ever disproportionate. An unquoted
-# description silently truncated to its first word loses both.
+# bypass_note is the entire record of a bypassed chunk, so an unquoted
+# description silently truncated to its first word loses it. Asserted on state
+# rather than on the printed line: the line no longer carries the description at
+# all (37b/37c), and state is the stronger pin anyway — it compares the joined
+# string whole instead of grepping for a substring of it.
 d="$(new_fixture case37 'bash tests/chunk/oracle.sh' tracked trivial)"
-expect    "37 bypass keeps the whole description in the field-log line" 0 "chafe: rename the timeout constant" -- chunk_check "$d" bypass rename the timeout constant
+expect    "37 bypass stamps from specified" 0 "stage=bypassed" -- chunk_check "$d" bypass rename the timeout constant
 assert_eq "37 bypass keeps the whole description in state" "$(state_get "$d" .bypass_note)" "rename the timeout constant"
 log_and_gate "$d" none
 expect    "37 a bypassed chunk still exits through the review gate" 0 "stage=done" -- chunk_check "$d" gate approved
+
+# 37b/37c — the printed line must leave `chafe:` UNANSWERED. It used to ship
+#   with bypass_note pre-filled there: a plausible wrong value in the one field
+#   that carries qualitative evidence, and unreachable by the placeholder scan
+#   because that scan breaks at `chafe:` (chafe is free text and may contain
+#   pipes). Both prior bypassed chunks corrected it by hand, which is the
+#   failure mode, not the mitigation. Separate fixtures on purpose: `bypass` is
+#   legal only from `specified`, so a second run against one fixture would be
+#   refused and expect_absent would pass on an error message.
+d="$(new_fixture case37b 'bash tests/chunk/oracle.sh' tracked trivial)"
+expect        "37b bypass leaves chafe unanswered in the printed line" 0 "chafe: ?" -- \
+  chunk_check "$d" bypass rename the timeout constant
+d="$(new_fixture case37c 'bash tests/chunk/oracle.sh' tracked trivial)"
+expect_absent "37c the work description never lands in chafe:" "chafe: rename the timeout constant" -- \
+  chunk_check "$d" bypass rename the timeout constant
+
+# 37d/37e — the trivial path's baseline evidence is EXECUTED, not remembered.
+#   audit-readiness step 0 sends a trivial chunk straight here and used to print
+#   `bash -c "<suite_cmd>"` for the operator to run, which is the shape this
+#   skill refuses everywhere else. `bypass` runs it and records the exit code.
+d="$(new_fixture case37d 'bash tests/chunk/oracle.sh' tracked trivial)"
+expect    "37d bypass runs the suite before stamping" 0 "suite green — recorded as bypass_suite" -- \
+  chunk_check "$d" bypass "rename the timeout constant"
+assert_eq "37d the exit code is on disk, not in a retro" "$(state_get "$d" .bypass_suite.exit)" "0"
+assert_eq "37d the command that produced it is on disk"  "$(state_get "$d" .bypass_suite.cmd)"  "true"
+
+# 37e — recorded, NOT gated. A red baseline predates this chunk, and blocking a
+#   two-minute change behind someone else's broken suite is the disproportion
+#   non-negotiable #7 exists to prevent. It must warn loudly and stamp anyway.
+d="$(new_fixture case37e 'bash tests/chunk/oracle.sh' tracked trivial)"
+set_state "$d" '.suite_cmd = "exit 3"'
+expect    "37e red baseline is warned about" 0 "suite RED (exit 3)" -- \
+  chunk_check "$d" bypass "rename the timeout constant"
+assert_eq "37e red baseline does not block the bypass" "$(state_get "$d" .stage)" "bypassed"
+assert_eq "37e the red exit code is recorded"          "$(state_get "$d" .bypass_suite.exit)" "3"
 
 # --- 38: the shipped templates, checked against their own checker -----------
 # Every case above builds its fixture files programmatically, which means none
@@ -588,18 +786,28 @@ expect    "37 a bypassed chunk still exits through the review gate" 0 "stage=don
 # filled gate, permanently, on the strength of its own instructions. These
 # assertions pin the templates themselves.
 
-d="$(new_fixture case38)"
+# `standard` explicitly: since the 2026-07-31 softening the blanks only gate
+# standard chunks, and this case is about the template's blanks, not its
+# verdict line (an untouched template on a `small` chunk is still refused,
+# but via the unrecognised verdict — case 20c's territory).
+d="$(new_fixture case38 "bash tests/chunk/oracle.sh" tracked standard)"
 cp "$TEMPLATES/predictions.md" "$d/$CHUNK/predictions.md"
 expect "38 untouched template predictions.md: freeze refused" 1 "unfilled blanks" -- chunk_check "$d" freeze
 
-# Fill it the way a human would: replace the blanks, leave the prose alone.
+# Fill it the way a human would — in two passes, because the two passes ARE the
+# gate: top half first, stamped by `predict` while the verdict is still blank;
+# verdict only after the plan is read. This also runs `predict` against the
+# shipped template's real structure (the Disagreements section sits between the
+# halves, and the top-half hash must stop before it).
 sed -e 's/^- Expected approach: .*/- Expected approach: add the thing/' \
     -e 's/^- Expected files touched: .*/- Expected files touched: src\/base.txt/' \
     -e 's/^- Biggest risk: .*/- Biggest risk: none/' \
-    -e 's/^Verdict: .*/Verdict: approve/' \
-    -e 's/^Adjusted: .*/Adjusted: n/' \
     "$TEMPLATES/predictions.md" > "$d/$CHUNK/predictions.md"
 quiet_check "$d" readiness
+expect "38 top half filled on the shipped template: predict stamps it" 0 "top half stamped" -- chunk_check "$d" predict
+sed -e 's/^Verdict: .*/Verdict: approve/' \
+    -e 's/^Adjusted: .*/Adjusted: n/' \
+    "$d/$CHUNK/predictions.md" > "$FIXROOT/pred.tmp" && mv "$FIXROOT/pred.tmp" "$d/$CHUNK/predictions.md"
 expect_absent "38 filled template predictions.md: no phantom blanks" "unfilled blanks" -- chunk_check "$d" freeze
 expect        "38 filled template predictions.md: gate recorded"  0 "plan gate verdict: approve" -- chunk_check "$d" freeze --refreeze
 
@@ -666,6 +874,28 @@ write_field_log "$d" "$(log_line "$d" approve 01-x '?')"
 expect "44 unfilled placeholder in the entry: log fails" 1 "unfilled placeholder" -- \
   chunk_check "$d" log --log-path "$(field_log_path "$d")"
 
+# 44b/44c — `chafe:` is the one qualitative field in the entry, and it sat
+#      inside the scan's `break` where nothing could see it. The break itself is
+#      correct (chafe is free text and may contain pipes, whose fragments would
+#      match the placeholder pattern), so the field needs its own check on the
+#      WHOLE value. 44c is the over-matching guard: a real chafe sentence that
+#      ends in a question mark is an answer, not a placeholder.
+d="$(new_fixture case44b 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" bypass "rename the timeout constant"
+fl_bypass() { # fl_bypass <chafe-text>
+  printf '2026-07-28 | %s | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | context:none | chafe: %s' \
+    "$(basename "$d")" "$1"
+}
+write_field_log "$d" "$(fl_bypass '?')"
+expect "44b unanswered chafe: log refuses the line" 1 "unfilled placeholder" -- \
+  chunk_check "$d" log --log-path "$(field_log_path "$d")"
+write_field_log "$d" "2026-07-28 | $(basename "$d") | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | context:none | chafe:"
+expect "44b empty chafe: log refuses the line too" 1 "unfilled placeholder" -- \
+  chunk_check "$d" log --log-path "$(field_log_path "$d")"
+write_field_log "$d" "$(fl_bypass 'why does readiness gate test_paths before it reaches the bypass rule?')"
+expect "44c a chafe sentence ending in '?' is an answer, not a placeholder" 0 "field-log entry verified" -- \
+  chunk_check "$d" log --log-path "$(field_log_path "$d")"
+
 # 45 — the demotion rule reads gate:, so an entry without a legal one is a line
 #      that cannot count in either direction
 d="$(new_fixture case45)"
@@ -683,6 +913,48 @@ quiet_check "$d" readiness; quiet_check "$d" freeze
 implement "$d"; quiet_check "$d" verify
 write_field_log "$d" "2026-07-28 | $(basename "$d") | 01-x | oracle-caught:n | ceremony-ok:y | chafe: none"
 expect "45b entry with no gate: field: log fails" 1 "legal gate: field" -- \
+  chunk_check "$d" log --log-path "$(field_log_path "$d")"
+
+# 45c/45d/45e — the gate: field has to agree with what the gate DID, not merely
+#       be spelled legally. `freeze` refuses the verdict `adjust` ("apply it and
+#       re-gate; freeze records approval only"), so `.gates.plan` can never hold
+#       it and the adjustment survives only in `.gates.plan_adjusted`. An agent
+#       transcribing `.gates.plan` — which is what audit-implementation.md used
+#       to say to do — logs every adjusted gate as `approve`, and the demotion
+#       rule reads this field: the human's catch would count TOWARD retiring the
+#       gate that caught it. Earned 2026-07-29 (skill-engine
+#       04-eval-corpus-split, retro candidate 4), where the rule and the
+#       recording convention turned out to have been written from the same
+#       analysis and implemented against different halves of it.
+d="$(new_fixture case45c)"
+quiet_check "$d" readiness; write_predictions "$d" approve y; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify
+# The fixture is only meaningful if it really is an adjusted gate — asserted, not
+# assumed, because a case that passes for the wrong reason reads as coverage.
+assert_eq "45c the fixture really is an adjusted gate" "$(state_get "$d" .gates.plan_adjusted)" "true"
+assert_eq "45c and freeze recorded it as approve, not adjust" "$(state_get "$d" .gates.plan)" "approve"
+write_field_log "$d" "$(log_line "$d" approve)"
+expect    "45c adjusted gate logged as approve: log fails" 1 "counts a catch toward retiring the gate" -- \
+  chunk_check "$d" log --log-path "$(field_log_path "$d")"
+assert_eq "45c nothing was recorded" "$(state_get "$d" '.field_log == null')" "true"
+
+# 45d — the correct spelling passes and records `adjust` even though
+#       `.gates.plan` reads `approve`. Without this, 45c would also be satisfied
+#       by a check that refused every gate: value it was handed.
+write_field_log "$d" "$(log_line "$d" adjust)"
+expect    "45d adjusted gate logged as adjust: log passes" 0 "field-log entry verified" -- \
+  chunk_check "$d" log --log-path "$(field_log_path "$d")"
+assert_eq "45d the streak-visible verdict is adjust" "$(state_get "$d" .field_log.gate)" "adjust"
+assert_eq "45d while state.json still records what froze" "$(state_get "$d" .gates.plan)" "approve"
+
+# 45e — the other half of the mapping. A bypassed chunk's `n/a` becomes `none`:
+#       no gate happened, so it is logged for proportionality and excluded from
+#       the streak. Case 47 pins that `none` passes; this pins that a line
+#       claiming a gate DID happen is refused.
+d="$(new_fixture case45e 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" bypass "rename the timeout constant"
+write_field_log "$d" "$(log_line "$d" approve)"
+expect "45e bypassed chunk logged as approve: log fails" 1 "the gate did something else" -- \
   chunk_check "$d" log --log-path "$(field_log_path "$d")"
 
 # 46 — verify, don't trust: a recorded entry is a claim about a file, and the
@@ -745,6 +1017,467 @@ implement "$d"; quiet_check "$d" verify
 expect "51 no flag, nothing recorded: the default path is named" 1 \
   ".claude/feature-chunker-field-log.md" -- \
   chunk_check_home "$d" "$FIXROOT/fakehome" log
+
+# --- 52-56: bypass --downgrade, the over-escalation correction ---------------
+# Added 2026-07-29 after a chunk was escalated trivial -> small at readiness on
+# "17 files, not 1-2" plus "an oracle is writable", ran the whole lifecycle on a
+# `git add`, and had its oracle deleted at review as a tautology. `bypass` was
+# illegal past `ready`, so the honest outcome -- work complete, ceremony was
+# wrong -- had no state to land in and got recorded as `blocked`, which means
+# unfinished. Note that case 52 pins the ORIGINAL stage guard, which no fixture
+# had ever noticed: it was live and unpinned for the whole life of the script.
+
+# 52 — the guard the correction path relaxes still holds without the flag.
+d="$(new_fixture case52)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+set_state "$d" '.size_class = "trivial"'
+expect "52 bypass past ready without --downgrade: refused" 1 "a frozen chunk cannot be bypassed" -- \
+  chunk_check "$d" bypass "should have been trivial"
+
+# 53 — with the flag, from a frozen chunk: allowed, and the correction is
+#      recorded rather than papered over. The freeze evidence stays: it is the
+#      receipt for what the over-escalation cost.
+d="$(new_fixture case53)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+pinned_before="$(state_get "$d" '.test_hashes | length')"
+expect    "53 bypass --downgrade from approved: allowed" 0 "small -> trivial" -- \
+  chunk_check "$d" bypass --downgrade "escalated by mistake; the oracle was a tautology"
+assert_eq "53 size_class is corrected"        "$(state_get "$d" .size_class)" "trivial"
+assert_eq "53 the correction records its origin stage" "$(state_get "$d" .size_class_corrected.from_stage)" "approved"
+assert_eq "53 the correction records the old class"    "$(state_get "$d" .size_class_corrected.from)" "small"
+assert_eq "53 the whole reason survives, not its first word" \
+  "$(state_get "$d" .size_class_corrected.reason)" "escalated by mistake; the oracle was a tautology"
+assert_eq "53 freeze evidence is left in place" "$(state_get "$d" '.test_hashes | length')" "$pinned_before"
+assert_eq "53 the correction path records baseline evidence too" "$(state_get "$d" .bypass_suite.exit)" "0"
+
+# 54 — the demotion streak is entitled to a plan gate that really ran. A plain
+#      bypass prints gate:none because no gate happened; this path must not.
+d="$(new_fixture case54)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+expect "54 downgrade field-log line carries the real plan verdict" 0 "| gate:approve |" -- \
+  chunk_check "$d" bypass --downgrade "escalated by mistake"
+expect_absent "54 downgrade field-log line is not gate:none" "gate:none" -- \
+  chunk_check "$d" status
+
+# 55 — the flag is a correction, not a second spelling of bypass, and not a
+#      way to re-open a closed chunk. 55a and 55b use SEPARATE fixtures on
+#      purpose: the first mutation trial run against this case had both
+#      assertions on one already-`trivial` fixture, so the already-trivial
+#      refusal fired first and the stage guard could be deleted with the suite
+#      staying green. A case that passes for the wrong reason is worse than a
+#      missing one, because it reads as coverage.
+d="$(new_fixture case55a 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" readiness
+expect "55a --downgrade on an already-trivial chunk: refused" 1 "already 'trivial'" -- \
+  chunk_check "$d" bypass --downgrade "nothing to correct"
+
+# 55b — reaches `done` the long way, so size_class is still `small` and the
+#       stage guard is the only thing that can refuse.
+d="$(new_fixture case55b)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify
+log_and_gate "$d"; quiet_check "$d" gate approved
+assert_eq "55b the fixture really reached done"        "$(state_get "$d" .stage)" "done"
+assert_eq "55b and its size_class is still correctable" "$(state_get "$d" .size_class)" "small"
+expect "55b --downgrade from done: refused" 1 "found 'done'" -- \
+  chunk_check "$d" bypass --downgrade "too late"
+expect "55b --downgrade on the wrong op: refused, not silently ignored" 2 "applies to 'bypass' only" -- \
+  chunk_check "$d" verify --downgrade
+
+# 55c — the `bypassed` arm of that guard is unreachable through the ops alone
+#       (a bypassed chunk is already `trivial`, so the already-trivial refusal
+#       would fire first), so the fixture forces the state a hand-edit or an
+#       older script could leave behind. Pinning it is the point: an arm no
+#       fixture can reach is an arm the next refactor deletes for free.
+d="$(new_fixture case55c)"
+quiet_check "$d" readiness
+set_state "$d" '.stage = "bypassed"'
+expect "55c --downgrade on an already-bypassed chunk: refused" 1 "found 'bypassed'" -- \
+  chunk_check "$d" bypass --downgrade "already there"
+
+# 56 — relaxing the stage guard must not relax the review gate. A downgraded
+#      chunk skips `verify`; it does not skip the human, and `gate approved`
+#      still re-reads the field log.
+d="$(new_fixture case56)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" bypass --downgrade "escalated by mistake"
+expect "56 downgraded chunk without a field-log entry: gate refused" 1 "no field-log entry recorded" -- \
+  chunk_check "$d" gate approved
+log_and_gate "$d"
+expect "56 downgraded chunk still exits through the review gate" 0 "stage=done" -- \
+  chunk_check "$d" gate approved
+
+# --- 57: verify is not the exit for a bypassed chunk -------------------------
+# Added 2026-07-29. `verify` had no stage guard, so running it against a
+# bypassed chunk ran the entire suite and then reported the *intended* state of
+# the world — no frozen oracle — as a wall of failures. Observed on a chunk
+# closed via `bypass --downgrade`, where the oracle had been deliberately
+# deleted at review: 9 failures, 8 of them noise, one real. An op that reports
+# correct states as failures trains the operator to skim its output.
+d="$(new_fixture case57 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" readiness
+quiet_check "$d" bypass "rename the timeout constant"
+expect "57 verify against a bypassed chunk: refused as the wrong op" 2 "has no frozen oracle" -- \
+  chunk_check "$d" verify
+# rc 2 (die), not 1 (a failed check) — the distinction is the whole point, and
+# it is what routes the operator to the gate instead of to a debugging session.
+expect "57 and it names the op that does apply" 2 "gate" -- chunk_check "$d" verify
+# The guard must not cost the suite run it exists to avoid.
+expect_absent "57 refusal happens before the suite runs" "suite green" -- chunk_check "$d" verify
+
+# 57b — the guard keys on bypass_note, not on stage. The first version keyed on
+#       stage == "bypassed" and stopped working the moment the chunk passed its
+#       gate: `bypassed` -> `done` is one op, and the `done` chunk still had no
+#       oracle. This case is the one that caught it.
+d="$(new_fixture case57b 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" readiness
+quiet_check "$d" bypass "rename the timeout constant"
+log_and_gate "$d" none; quiet_check "$d" gate approved
+assert_eq "57b bypassed chunk reached done" "$(state_get "$d" .stage)" "done"
+expect "57b verify still refused after a bypassed chunk closes" 2 "has no frozen oracle" -- \
+  chunk_check "$d" verify
+
+# 57c — and it must not catch a chunk that paid for the full lifecycle. At
+#       `done` that chunk's oracle is real, so re-verifying means something.
+d="$(new_fixture case57c)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify
+log_and_gate "$d"; quiet_check "$d" gate approved
+assert_eq "57c fixture reached done" "$(state_get "$d" .stage)" "done"
+expect "57c verify from done is still legal" 0 "oracle unchanged since freeze" -- chunk_check "$d" verify
+
+# 57d — a rebaseline genuinely restarts a bypassed chunk into the lifecycle, so
+#       it must clear the marker. Otherwise the guard would refuse the very op
+#       the rebaseline exists to re-enable — a one-way door out of `bypass`.
+d="$(new_fixture case57d 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" readiness
+quiet_check "$d" bypass "turned out to be bigger than it looked"
+quiet_check "$d" readiness --rebaseline
+assert_eq "57d rebaseline clears the bypass marker" "$(state_get "$d" .bypass_note)" "null"
+quiet_check "$d" freeze
+expect "57d and verify applies again" 1 "the frozen oracle is red at verify" -- chunk_check "$d" verify
+
+# --- 58: the gate hands off to the next session ------------------------------
+# Added 2026-07-29, raised by a maintainer at a closing gate. `done` is terminal
+# for the chunk and used to be a dead end for the session: the gate said "the
+# human commits from here" and stopped. Everything needed to resume — which
+# chunk is next, what to load first — had to be re-derived from feature.md or
+# recomposed from memory. In a skill whose non-negotiable #3 is that an answer
+# living in chat scrollback does not exist next session, this was the one
+# transition that handed off nothing.
+
+# A sibling chunk's directory is deliberately OUT of a chunk's declared scope —
+# one chunk, one diff, one review (see path_allowed's two-segment case arm). So
+# a queue has to exist at the baseline, not appear mid-chunk, or `verify` counts
+# it as scope creep and never reaches `verified`. The first draft of 58a got
+# this wrong and 58d passed anyway, for the wrong reason: the gate had already
+# failed, so "no next chunk in the output" was trivially true. Hence the
+# stage assertion in every case below before the handoff is asserted at all.
+
+# 58a — names the next chunk and emits a pasteable resume prompt.
+d="$(new_fixture case58a)"
+add_sibling "$d" "02-y" specified
+commit_all "$d" "queue"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+assert_eq "58a fixture reached verified before the gate" "$(state_get "$d" .stage)" "verified"
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "58a gate names the next chunk and its stage" "$out" "next chunk: 02-y (stage: specified)"
+assert_contains "58a and emits a resume prompt, not just a name"  "$out" "/feature-chunker Repo:"
+assert_contains "58a which points at the feature file"           "$out" "docs/chunks/f/feature.md"
+assert_contains "58a and at the retro this chunk just wrote"     "$out" "docs/chunks/f/01-x/retro.md"
+# The handoff is an addition, not a replacement: the commit prohibition is the
+# other thing this gate has to say, and it must survive.
+assert_contains "58a the commit prohibition still prints"        "$out" "the harness still does not"
+
+# 58b — no unfinished chunk DIRECTORY is not the same as an empty queue, and the
+#       message must not claim otherwise. Chunk dirs are stamped as each chunk
+#       comes up, so a 24-row queue can have two directories on disk. The first
+#       version of this said "the feature queue is clear" and was caught the
+#       first time it ran against a real feature with 22 unstamped chunks — the
+#       fixtures agreed with the bug because every fixture chunk is stamped.
+#       A confidently wrong pointer is worse than silence.
+d="$(new_fixture case58b)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+assert_eq "58b fixture reached verified before the gate" "$(state_get "$d" .stage)" "verified"
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "58b no unfinished chunk dir is reported as such" "$out" "no unfinished chunk directory"
+assert_contains "58b and points at the queue table for unstamped chunks" "$out" "feature.md"
+assert_absent   "58b it never claims the queue is empty"          "$out" "queue is clear"
+assert_absent   "58b and emits no resume prompt"                  "$out" "/feature-chunker Repo:"
+
+# 58c — skips chunks already closed. Glob order is lexicographic and the queue
+#       is numbered, so "first non-done sibling" is the next one to work on.
+d="$(new_fixture case58c)"
+add_sibling "$d" "02-y" "done"   # quoted: bare `done` reads as the loop keyword (SC1010)
+add_sibling "$d" "03-z" specified
+commit_all "$d" "queue"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+assert_eq "58c fixture reached verified before the gate" "$(state_get "$d" .stage)" "verified"
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "58c skips a done sibling"          "$out" "next chunk: 03-z"
+assert_absent   "58c and does not offer the done one" "$out" "next chunk: 02-y"
+
+# 58d — only `approved` hands off. changes-requested and rejected mean the chunk
+#       is still live, and pointing at the next one would be telling the operator
+#       to walk away from work that just came back to them.
+d="$(new_fixture case58d)"
+add_sibling "$d" "02-y" specified
+commit_all "$d" "queue"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+assert_eq "58d fixture reached verified before the gate" "$(state_get "$d" .stage)" "verified"
+out="$(chunk_check "$d" gate changes-requested 2>&1)"
+# Assert the gate SUCCEEDED first. Without this the absence assertion below is
+# satisfied by any failure that stops the gate before the handoff — which is
+# exactly how the first draft of this case passed while 58a was broken.
+assert_contains "58d changes-requested is recorded"    "$out" "stage=approved"
+assert_absent   "58d changes-requested does not hand off" "$out" "next chunk:"
+
+# --- 59: what a bypassed chunk shipped ---------------------------------------
+# Same session, same root cause. A bypassed chunk has no `implement` op and never
+# runs `verify`, so its work happens between `bypass` and `gate` and shows up in
+# no transcript and no state field. `bypass_note` says what the work *would be*,
+# in the future tense, and nothing reconciles it against what was done. The
+# maintainer's question was literally "don't we have to implement this chunk?" —
+# the work was on disk and approved, and nothing the harness printed said so.
+#
+# This is a record, not a check. It never fails the gate: the human has read the
+# diff and the diff is the authority.
+
+# 59a — baseline present: the delta since baseline is what shipped.
+d="$(new_fixture case59a 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" readiness
+quiet_check "$d" bypass "rename the timeout constant"
+implement "$d"
+log_and_gate "$d" none
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "59a bypassed gate records the work that shipped" "$out" "src/feature.txt"
+assert_contains "59a and names the baseline it measured from"     "$out" "shipped (baseline:"
+assert_eq "59a the record is in state.json, not only on stdout" \
+  "$(state_get "$d" '.bypass_shipped.paths | index("src/feature.txt") != null')" "true"
+# Chunk docs are bookkeeping, never the work. state.json changes on every op, so
+# without the filter it would top the list for exactly the chunks that shipped
+# least.
+assert_eq "59a chunk docs excluded from the shipped record" \
+  "$(state_get "$d" '[.bypass_shipped.paths[] | select(startswith("docs/chunks/"))] | length')" "0"
+assert_eq "59a status surfaces it" \
+  "$(chunk_check "$d" status | grep -c 'shipped: .*src/feature.txt')" "1"
+
+# 59b — neither anchor: the legacy shape, a chunk bypassed before bypass_base
+#       existed. It must still record what it can see rather than nothing, so
+#       the worktree arm stays reachable instead of becoming dead code.
+d="$(new_fixture case59b 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" bypass "three lines in a settings file"
+set_state "$d" '.bypass_base = null'    # as if bypassed by an older script
+implement "$d"
+log_and_gate "$d" none
+assert_eq "59b fixture really has no baseline" "$(state_get "$d" .baseline_sha)" "null"
+assert_eq "59b and no bypass anchor either"    "$(state_get "$d" .bypass_base)" "null"
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "59b falls back to the worktree delta" "$out" "shipped (worktree)"
+assert_contains "59b and still finds the work"         "$out" "src/feature.txt"
+
+# 59c — a chunk that paid for the full lifecycle records nothing here. Its work
+#       is already evidenced by oracle-red.log, oracle-green.log and verify's
+#       scope check; a second, weaker record would be noise.
+d="$(new_fixture case59c)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+quiet_check "$d" gate approved
+assert_eq "59c non-bypassed chunk records no shipped set" \
+  "$(state_get "$d" .bypass_shipped)" "null"
+
+# 59d — it is a record, not a gate. A bypassed chunk with nothing to show still
+#       closes; it warns instead of blocking, because the human already read the
+#       diff and a record cannot overrule them.
+d="$(new_fixture case59d 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" bypass "work that leaves no visible delta"
+log_and_gate "$d" none
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "59d empty shipped set warns"        "$out" "no changed paths visible at gate time"
+assert_contains "59d but the gate still closes"      "$out" "stage=done"
+assert_eq "59d and the chunk really is done" "$(state_get "$d" .stage)" "done"
+
+# 59e — THE motivating case, and the one the first draft got wrong. The harness
+#       does not commit; the human does, and that is the design's intended exit.
+#       So the common shape is: bypass, do the work, human commits, then gate.
+#       With only a worktree fallback that records nothing at all — the delta is
+#       committed and the chunk never pinned a baseline (readiness hard-fails a
+#       trivial chunk's empty test_paths). `bypass` therefore records HEAD as
+#       bypass_base precisely so this op has an anchor. Found by running the
+#       feature against the real chunk that motivated it, after the fixtures
+#       were green: every fixture left its work uncommitted.
+d="$(new_fixture case59e 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" bypass "three lines in a settings file"
+assert_eq "59e bypass recorded an anchor to measure from" \
+  "$(state_get "$d" '.bypass_base | length')" "40"
+implement "$d"
+commit_all "$d" "the human commits the bypassed work"
+assert_eq "59e the work really is committed, worktree clean" \
+  "$( cd "$d" && git status --porcelain | wc -l | tr -d ' ' )" "0"
+log_and_gate "$d" none
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "59e committed work is still recorded"   "$out" "src/feature.txt"
+assert_contains "59e measured from the bypass anchor"    "$out" "shipped (bypass-base:"
+assert_absent   "59e and does not warn about an empty set" "$out" "no changed paths visible"
+
+# 59f — a rebaseline returns a bypassed chunk to the lifecycle, so the anchor
+#       goes with the marker. Leaving it would have the next bypass measure from
+#       a point two baselines back.
+d="$(new_fixture case59f 'bash tests/chunk/oracle.sh' tracked trivial)"
+quiet_check "$d" bypass "turned out to be bigger than it looked"
+quiet_check "$d" readiness --rebaseline
+assert_eq "59f rebaseline clears the bypass anchor too" "$(state_get "$d" .bypass_base)" "null"
+
+# 60 — freeze runs suite_cmd once and records it, even when it's green. Control
+#      case for 61: proves the field gets populated at all before 61 proves the
+#      red case doesn't gate.
+d="$(new_fixture case60)"
+quiet_check "$d" readiness
+quiet_check "$d" freeze
+assert_eq "60 freeze records a green freeze_suite" "$(state_get "$d" '.freeze_suite.exit')" "0"
+assert_eq "60 freeze_suite carries the suite_cmd string" \
+  "$(state_get "$d" '.freeze_suite.cmd')" "true"
+
+# 61 — THE motivating case (skill-engine chunks 14 and 15: a stray doc-path
+#      reference and a dead shell variable, both baked into the frozen oracle's
+#      own header/body, both lint-only breaks unrelated to any test assertion,
+#      both invisible until implement's first full-suite run because freeze
+#      only ever executed oracle_cmd — a narrow slice of suite_cmd). suite_cmd
+#      here is green at readiness (baseline, before this chunk touched
+#      anything) and red at freeze (something now on disk trips it) — the
+#      exact shape of a lint break arriving with the files freeze is about to
+#      hash-pin. freeze must still succeed: the probe records, it does not
+#      gate, for the same proportionality reason bypass_suite doesn't gate.
+d="$(new_fixture case61)"
+set_state "$d" '.suite_cmd = "[ ! -f lint-marker.txt ]"'
+quiet_check "$d" readiness
+assert_eq "61 readiness reached ready on a clean baseline" "$(state_get "$d" .stage)" "ready"
+printf 'tripped\n' > "$d/lint-marker.txt"
+out="$(chunk_check "$d" freeze 2>&1)"; rc=$?
+assert_eq "61 freeze still succeeds despite a red freeze_suite probe" "$rc" "0"
+assert_contains "61 freeze prints the red suite as a WARN, not a FAIL" \
+  "$out" "WARN  suite RED (exit 1) — recorded as freeze_suite, not gated"
+assert_eq "61 freeze_suite.exit is recorded" "$(state_get "$d" '.freeze_suite.exit')" "1"
+assert_eq "61 stage still reaches approved" "$(state_get "$d" .stage)" "approved"
+
+# --- 62-66: the predict op — 'blind' as a checkable property ----------------
+# THE motivating incident (skill-engine chunk 04, 2026-07-29): predictions.md
+# was filled in one pass, verdict included, so the gate's outcome was recorded
+# about a plan that did not yet exist. The unfilled-blank check and the
+# verdict-vocabulary check both passed — they confirm the blanks are gone,
+# which is not the property the gate needs. The property is ORDER, and
+# `predict` is the mechanism that observes it: stamp the top half while the
+# verdict is still blank; freeze verifies the stamped bytes never moved.
+
+# 62 — the op itself: stage guard, the one-pass refusal, the blank refusal,
+#      the stamp, and the re-stamp path
+d="$(new_fixture case62 'bash tests/chunk/oracle.sh' tracked standard)"
+expect "62 predict before readiness: refused" 1 "legal from stage 'ready'" -- chunk_check "$d" predict
+quiet_check "$d" readiness
+expect "62 one-pass predictions (verdict already filled): predict refused" 1 "already carries a verdict" -- chunk_check "$d" predict
+printf '%s\n' '# gate' '' '- Expected approach: ___' '' 'Verdict: ___' 'Adjusted: ___' > "$d/$CHUNK/predictions.md"
+expect "62 unfilled top half: predict refused" 1 "unfilled blanks" -- chunk_check "$d" predict
+write_blind_predictions "$d"
+expect "62 blind top half, no plan on disk: predict stamps it" 0 "blind by construction" -- chunk_check "$d" predict
+assert_eq "62 stamp recorded with plan_present=false" "$(state_get "$d" '.predict.plan_present')" "false"
+expect "62 re-predict while the plan is unread: replaced with a warning" 0 "replacing predict stamp" -- chunk_check "$d" predict
+out="$(chunk_check "$d" status 2>&1)"
+assert_contains "62 status prints the stamp" "$out" "predict:"
+fill_verdict "$d" approve n
+expect "62 stamped standard chunk: freeze passes, naming the blind tier" 0 "blind by construction" -- chunk_check "$d" freeze
+
+# 63 — the stamp binds content: a top half rewritten after the stamp (i.e.
+#      after the plan may have been read) is exactly what the stamp exists to
+#      catch, so freeze refuses the hash mismatch
+d="$(new_fixture case63 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+quiet_check "$d" predict
+printf '%s\n' \
+  '# plan gate (predict-then-compare)' '' \
+  '- Expected approach: entirely rewritten after reading the plan' \
+  '- Expected files touched: src/feature.txt' \
+  '- Biggest risk: none' '' \
+  '## Verdict' '' 'Verdict: approve' 'Adjusted: n' \
+  > "$d/$CHUNK/predictions.md"
+expect "63 top half rewritten after the stamp: freeze refused" 1 "changed after the predict stamp" -- chunk_check "$d" freeze
+
+# 64 — the closed hole, demonstrated on its original shape: fixture predictions
+#      are fully filled in one pass, verdict included, and no predict ever ran.
+#      On a standard chunk that used to sail through; now it cannot.
+d="$(new_fixture case64 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+expect "64 standard chunk, one-pass predictions, no stamp: freeze refused" 1 "no predict stamp" -- chunk_check "$d" freeze
+# The softening survives: below `standard` the stamp is optional, and the
+# refusal above must not leak down a size class.
+d="$(new_fixture case64b)"
+quiet_check "$d" readiness
+expect "64b small chunk, no stamp: freeze passes, stamp optional" 0 "optional below 'standard'" -- chunk_check "$d" freeze
+
+# 65 — a stamp that exists is held to at every size: `small` relaxes whether
+#      you must predict, never whether a recorded prediction is honest
+d="$(new_fixture case65)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+quiet_check "$d" predict
+printf '%s\n' \
+  '# plan gate (predict-then-compare)' '' \
+  '- Expected approach: entirely rewritten after reading the plan' \
+  '- Expected files touched: src/feature.txt' \
+  '- Biggest risk: none' '' \
+  '## Verdict' '' 'Verdict: approve' 'Adjusted: n' \
+  > "$d/$CHUNK/predictions.md"
+expect "65 small chunk, stamped then edited: freeze refused" 1 "changed after the predict stamp" -- chunk_check "$d" freeze
+
+# 66 — draft-ahead: a plan.md already on disk at stamp time is recorded and
+#      reported, never refused — the design predates draft-ahead, and mtimes
+#      prove nothing a checkout can't fake. Absence-at-stamp + presence-at-
+#      freeze is the provable tier; presence-at-stamp is the honest record of
+#      the weaker one.
+d="$(new_fixture case66 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+printf 'draft plan\n' > "$d/$CHUNK/plan.md"
+out="$(chunk_check "$d" predict 2>&1)"; rc=$?
+assert_eq "66 predict with a drafted plan on disk: still legal" "$rc" "0"
+assert_contains "66 the draft's presence is recorded, not ignored" "$out" "plan.md already on disk"
+assert_eq "66 plan_present recorded true" "$(state_get "$d" '.predict.plan_present')" "true"
+fill_verdict "$d" approve n
+expect "66 freeze names the draft-ahead tier, not blind-by-construction" 0 "withheld" -- chunk_check "$d" freeze
+quiet_check "$d" readiness --rebaseline
+assert_eq "66 rebaseline clears the predict stamp with the rest of the gate" "$(state_get "$d" '.predict')" "null"
+
+# 67 — `log` computes the demotion streak from the entries themselves. The
+#      live log's hand-maintained header count went stale within days — a
+#      manual counter feeding the one mechanism that adapts ceremony downward
+#      from data. The log stays the data; the script does the arithmetic.
+#      gate:none is excluded but does not break the run; adjust and reject
+#      both reset it; approve and auto-pass extend it.
+d="$(new_fixture case67)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" verify
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a)" \
+  "$(log_line "$d" adjust 00-b)" \
+  "$(log_line "$d" approve 00-c)" \
+  "$(log_line "$d" none 00-d)" \
+  "$(log_line "$d" auto-pass 00-e)" \
+  "$(log_line "$d" approve 01-x)"
+out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"; rc=$?
+assert_eq "67 log passes with the entry present" "$rc" "0"
+assert_contains "67 streak computed: adjust resets it, none is excluded" "$out" "demotion streak: 3"
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a)" \
+  "$(log_line "$d" reject 00-b)" \
+  "$(log_line "$d" approve 01-x)"
+out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"
+assert_contains "67 reject resets the streak too" "$out" "demotion streak: 1"
 
 # --- summary ---------------------------------------------------------------
 

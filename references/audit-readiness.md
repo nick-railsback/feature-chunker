@@ -105,7 +105,7 @@ leaves no trace in the repo — a `.gitignore` entry is itself a repo change you
 would have to justify in a shared project. If the write is denied, surface that
 rather than retrying variations.
 
-Two costs to state out loud before the human picks `untracked`:
+Three costs to state out loud before the human picks `untracked`:
 
 - **`git clean -fdx`, a fresh clone, or a new worktree destroys the chunk
   state** — including `oracle-red.log`, the only evidence the oracle was ever
@@ -114,6 +114,18 @@ Two costs to state out loud before the human picks `untracked`:
   disappeared with it. So a chunk directory from another branch can sit there
   looking live. `readiness` pins `branch` and warns on drift; that warning is
   the one that matters most in this mode.
+- **Tracked artifacts must not cite untracked ones.** In `untracked` mode the
+  oracle is tracked — `freeze` pins tracked files only — and the spec is not, so
+  the natural way to write a test header, *"oracle for the criteria in
+  `<chunk>/spec.md`"*, is a dangling pointer in every other clone, and the chunk
+  vocabulary ("chunk 01", "chunk 24") leaks into a public file that cannot
+  explain it. Write tracked artifacts to stand alone: state the invariant, never
+  cite the chunk doc. **Nothing in the backstop detects this** — `readiness`
+  reconciles the artifacts mode against git in both directions but says nothing
+  about a tracked file referencing an untracked one, so it is a review-gate
+  catch or nothing. A repo that wants it mechanical can add a grep for
+  `docs/chunks/` over `git ls-files` to its own lint; that check belongs to the
+  repo, not here, because only the repo knows where its lints live.
 
 **Never move the artifacts outside the repo** to get the same effect. Two
 independent blockers: `chunk-check.sh` refuses a chunk directory outside the
@@ -135,12 +147,64 @@ only ever receives the first kind. The rule and the test for it are in the
 template and in `plan.md`; the classification is a human judgement made once per
 feature, not per chunk.
 
+Each entry also declares **Covers** — the path globs the pack describes. That
+is the answer to a question the original three never asked: *what keeps the
+pack true while the feature changes the project underneath it?* Sources got
+this for free ("spec.md is authoritative" — read once, never re-trusted), but
+packs are re-loaded every chunk, so a stale one is re-trusted every chunk. The
+refresh rule lives in `references/audit-implementation.md` § Half 2: a chunk
+whose diff overlaps a pack's `Covers` updates the pack or attests it in the
+review packet. Fill the globs here, once, while classifying.
+
 For a multi-repo ecosystem: the harness is single-repo by construction — one
 `git rev-parse --show-toplevel`, one chunk tree. Cross-repo work means one
 feature directory per repo, each `feature.md` naming its siblings in
 **Constraints**, and a context pack that covers the ecosystem listed in both.
 
 ## Procedure
+
+**0. Is this chunk `trivial`? Then this op does not apply — go straight to
+`bypass`.** The lifecycle puts `audit-readiness` on the `specified → ready`
+edge, and a bypassed chunk never takes that edge; it goes `specified →
+bypassed`. Running this op anyway means answering **"where will the oracle
+live?"** for a chunk that will never own an oracle, and the script hard-fails on
+an empty `test_paths` — so a chunk headed for `bypass` reaches the bypass rule
+only by first failing a gate about a file that will never exist. Both honest
+answers at that point are bad: invent a path, or read a `RESULT FAIL` banner
+over a run whose baseline evidence was fine.
+
+Do this instead:
+
+```
+bin/chunk-check.sh bypass <chunk-dir> "<what>"     # legal from `specified`
+```
+
+One command, because the suite run is the only part of `readiness` a trivial
+chunk actually wants and **`bypass` runs it for you**: it reads `suite_cmd` from
+`state.json`, runs it before the stamp — while "before the work" is still true —
+and records the result in `bypass_suite`. It does **not** gate on the outcome. A
+red baseline predates this chunk, and blocking a two-minute change behind
+someone else's broken suite is the disproportion non-negotiable #7 exists to
+prevent; red is recorded and warned about loudly, and what it means is the
+review gate's call.
+
+That the script runs it is the point. This step used to print `bash -c
+"<suite_cmd>"` here and leave the running of it to you — an instruction to
+remember, in the skill whose whole argument is that instructions to remember are
+not mechanisms, and which had already been caught by exactly that once: the
+field-log append was prose for months while the log sat empty at every install
+path.
+
+`baseline_sha` is not missed either — `bypass` records `bypass_base` as its own
+anchor, which is what `gate` measures the shipped diff against. What you do give
+up is the `spec.md` ↔ `state.json` reconciliation, on a chunk whose whole
+contract is one or two scope paths.
+
+**If the class is wrong, that is the thing to fix**, not this step: escalate the
+chunk properly and run the full op. Step 5's escalation test — *can this
+regress?* — is what decides, and it is cheapest to ask before stamping anything.
+
+Everything below is for `small` and `standard` chunks.
 
 1. **Reconcile state vs disk.** Read `state.json`. Every claim it makes must
    be observable: files it names exist, recorded SHAs are real commits.
@@ -197,6 +261,13 @@ feature directory per repo, each `feature.md` naming its siblings in
    while acceptance criteria are being written becomes architecture in the
    criteria, and the subagent boundary cannot catch what the spec already
    carries. The full load order is in `plan.md` § Context packs.
+
+   The same rule has a draft-ahead corollary: when this step runs from the
+   window that just implemented the previous chunk (`plan.md` § Draft-ahead),
+   the *window itself* is implementation context — no pack needed to be loaded
+   for the contamination to be present. Gate the spec in a fresh-context
+   subagent given `spec.md`, `feature.md` and the contract packs, or leave
+   spec work for the arrival.
 
    Then read `spec.md` and hold it to this standard. Three of these five are
    **mechanically enforced** by `readiness` (it hard-fails without them); two
@@ -259,18 +330,41 @@ intent; by `freeze` it has to be the command that actually ran red.
    `spec.md` and the eventual plan execute this inside one session? If the
    honest answer is no, the chunk is too big. Split it in `feature.md` now
    — two well-sized chunks cost less than one abandoned window.
-5. **Apply the bypass rule.** If size class is `trivial` — no design
-   decision, 1–2 files, trivially reversible — the lifecycle does not apply.
+5. **Apply the bypass rule.** This is step 0 arriving late — the case where the
+   spec, not `feature.md`, is what reveals the chunk is trivial. If size class is
+   `trivial` — no design decision, small blast radius, trivially reversible —
+   the lifecycle does not apply.
    Run `bin/chunk-check.sh bypass <chunk-dir> "<one line: what the work
    is>"`, do the work directly, and hand the diff to the human for review. The
    full ceremony on a two-minute change is how a harness teaches its user to
    stop using it. Two things the op enforces so the hatch cannot rot: it
    requires `size_class` to be exactly `trivial` (non-negotiable #7 is
    proportionality, not convenience) and it is illegal from any stage past
-   `ready`, so a frozen chunk cannot be bypassed out of its own gate. It also
-   prints the field-log line to append — a bypassed chunk still enters the
-   evidence base, or "was the ceremony proportionate?" gets answered only by
-   the chunks that already paid for it.
+   `ready` without `--downgrade`, so a frozen chunk cannot be bypassed out of
+   its own gate by accident. It also prints the field-log line to append — a
+   bypassed chunk still enters the evidence base, or "was the ceremony
+   proportionate?" gets answered only by the chunks that already paid for it.
+
+   **The file count is a proxy for blast radius, not a gate.** `git add` of a
+   twenty-file directory is one decision, reversible in one command, and is
+   `trivial`; a two-line change to an auth check is not. Reading the proxy as
+   the rule inverts the rule.
+
+   **The escalation test is "can this regress?", not "can this be tested?"**
+   An oracle being *writable* is not a reason to escalate. A test whose only
+   failure mode is someone deliberately undoing the work is a tautology: it
+   costs the full lifecycle now, plus maintenance every time the world
+   legitimately changes, and it can never fail for a reason anyone wants to
+   know about. Assertable is not the same as worth asserting.
+
+   **If the escalation was wrong and you only see it later**, correct it rather
+   than pushing on through gates nobody needs: `bypass --downgrade <chunk-dir>
+   "<why>"` is legal from any pre-`done` stage, sets `size_class` to `trivial`,
+   and records the correction in `state.json.size_class_corrected` with the
+   stage it was made from. Also fix `spec.md`'s `size-class` block, or the next
+   `readiness` hard-fails on the divergence — the correction is a spec change
+   like any other. The freeze evidence is deliberately left in place: it is the
+   record of what the over-escalation cost.
 6. **Verdict.** Either stage is `ready` (script has pinned the baseline), or
    `bin/chunk-check.sh block <chunk-dir> "<reason>"` sets stage `blocked`
    and appends the reason to `state.json`'s `blockers` array. No planning
@@ -283,8 +377,12 @@ prohibition `verify` enforces covers bypassed chunks for free. It also needs
 its field-log line and its `chunk-check.sh log` run before that gate will
 close, exactly like a chunk that paid for the full lifecycle: a dataset made
 only of ceremonious chunks can never answer whether the ceremony was
-proportionate. The line `bypass` prints leaves `ceremony-ok:?` and `context:?`
-for the human to answer, and `log` refuses the line while a `?` remains. There is no
+proportionate. The line `bypass` prints leaves `ceremony-ok:?`, `context:?` and
+`chafe: ?` for the human to answer, and `log` refuses the line while a `?`
+remains — `chafe:` included, which it was not for the first three bypassed
+chunks: the line used to ship with the *work description* pre-filled there, a
+plausible wrong value sitting in the one field that carries qualitative
+evidence. There is no
 `unblock` op: `readiness` already clears `blockers` and re-pins, and a second
 route to the same state is a second thing to keep true.
 

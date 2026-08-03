@@ -15,14 +15,16 @@ warn() { printf 'WARN  %s\n' "$1"; }
 info() { printf 'INFO  %s\n' "$1"; }
 die()  { printf 'ERROR %s\n' "$1" >&2; exit 2; }
 
-usage() { die "usage: chunk-check.sh <readiness|freeze|verify|log|gate|bypass|block|status> <chunk-dir> [args]
-       flags: --rebaseline (readiness), --refreeze (freeze), --log-path <file> (log)"; }
+usage() { die "usage: chunk-check.sh <readiness|predict|freeze|verify|log|gate|bypass|block|status> <chunk-dir> [args]
+       flags: --rebaseline (readiness), --refreeze (freeze), --log-path <file> (log),
+              --downgrade (bypass)"; }
 
 [ $# -ge 2 ] || usage
 OP="$1"; CHUNK_ARG="$2"; shift 2
 
 OPT_REBASELINE=0
 OPT_REFREEZE=0
+OPT_DOWNGRADE=0
 OPT_LOG_PATH=""
 EXTRA1=""
 EXTRA2=""
@@ -30,12 +32,18 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --rebaseline) OPT_REBASELINE=1 ;;
     --refreeze)   OPT_REFREEZE=1 ;;
+    --downgrade)  OPT_DOWNGRADE=1 ;;
     --log-path)   shift; [ $# -gt 0 ] || die "--log-path needs a file path"; OPT_LOG_PATH="$1" ;;
     --*)          die "unknown option: $1" ;;
     *)            if [ -z "$EXTRA1" ]; then EXTRA1="$1"; else EXTRA2="${EXTRA2:+$EXTRA2 }$1"; fi ;;
   esac
   shift
 done
+
+# --downgrade changes which stages an op will accept, so a typo that lands it on
+# the wrong op must not read as "accepted and had no effect".
+[ "$OPT_DOWNGRADE" -eq 0 ] || [ "$OP" = "bypass" ] \
+  || die "--downgrade applies to 'bypass' only (given: $OP)"
 
 command -v jq  >/dev/null 2>&1 || die "jq is required"
 command -v git >/dev/null 2>&1 || die "git is required"
@@ -56,7 +64,7 @@ cd "$REPO_ROOT" || die "cannot cd to repo root"
 [ -f "$STATE" ] || die "missing $CHUNK_REL/state.json (stamp from templates/state.json)"
 jq -e . "$STATE" >/dev/null 2>&1 || die "state.json is not valid JSON"
 
-SCHEMA_MAX=5
+SCHEMA_MAX=10
 sv="$(jq -r '.schema_version // 0' "$STATE")"
 case "$sv" in
   ''|*[!0-9]*) die "schema_version is not an integer — state.json is malformed" ;;
@@ -146,6 +154,52 @@ run_suite() {
   info "running suite: $cmd"
   if bash -c "$cmd"; then pass "suite green"; return 0
   else fail "suite red"; return 1; fi
+}
+
+# --- the trivial path's baseline evidence -----------------------------------
+# `audit-readiness` step 0 sends a `trivial` chunk straight to `bypass`, and the
+# one part of `readiness` it keeps is the suite run. That run is diagnostic: it
+# is what makes a red suite *after* a two-minute change known to be yours. Step
+# 0 asked for it in prose and nothing executed it — an instruction to remember,
+# in the skill whose entire argument is that instructions to remember are not
+# mechanisms. It is the same shape as the field-log append, which was prose for
+# months while the log sat empty at every install path.
+#
+# It records; it does not gate. A red baseline predates the chunk and is not its
+# problem, and blocking a comment-sized change behind someone else's broken
+# suite is the disproportion non-negotiable #7 exists to prevent — the escape
+# hatch would cost more than every chunk it rescued. Red is recorded and warned
+# about loudly; what it means is the review gate's call.
+#
+# Sets SUITE_JSON rather than printing it: pass/warn/info write to stdout, so a
+# command substitution around this would capture the diagnostics into the JSON.
+#
+# Shared by `bypass` (bypass_suite) and `freeze` (freeze_suite) — same shell
+# command, two different moments in the lifecycle, so the message has to say
+# which. `label` names the state.json field this run will be recorded under;
+# `context` is the one-line reason the exit code means what it means at this
+# particular call site, since "red" is alarming at `bypass` (nothing has
+# touched the repo yet) and routine at `freeze` (the chunk's own new, still-
+# unimplemented oracle is *supposed* to be red inside this same suite run).
+SUITE_JSON="null"
+record_suite_result() { # record_suite_result <label> <context-for-red>
+  local label="$1" red_context="$2" cmd rc=0
+  cmd="$(jget '.suite_cmd // empty')"
+  if [ -z "$cmd" ]; then
+    SUITE_JSON="null"
+    warn "suite_cmd is not set — this $label records no baseline evidence"
+    return 0
+  fi
+  info "running suite (recorded, not gated): $cmd"
+  bash -c "$cmd" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    pass "suite green — recorded as $label"
+  else
+    warn "suite RED (exit $rc) — recorded as $label, not gated"
+    warn "  $red_context"
+  fi
+  SUITE_JSON="$(jq -n --arg c "$cmd" --argjson e "$rc" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, cmd: $c, exit: $e}')"
 }
 
 # --- oracle evidence -------------------------------------------------------
@@ -302,6 +356,56 @@ resolve_log_path() {
 # A line belongs to this chunk when its first three pipe-separated fields are a
 # date, this repo and this chunk — the entry format's own leading columns.
 FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
+# The `gate:` value the field-log entry must carry, DERIVED from state rather
+# than transcribed from it. It is deliberately not `.gates.plan`: `freeze`
+# refuses the verdict `adjust` ("apply it and re-gate; freeze records approval
+# only"), so `.gates.plan` can only ever hold approve / auto-pass / n/a, and an
+# adjustment survives solely in `.gates.plan_adjusted`. Copying `.gates.plan`
+# into the log therefore makes `gate:adjust` unreachable — and the demotion rule
+# reads exactly that field, arguing at length in the log's own header that
+# counting only rejections "lets a run of ten chunks in which the human adjusted
+# eight plans read as 'zero rejections' — retiring the gate on the strength of
+# its own catches." The rule and the recording convention were written from the
+# same analysis and implemented against different halves of it. This function is
+# the single place the mapping lives so the two cannot drift again.
+expected_field_log_gate() {
+  local g
+  [ "$(jget '.gates.plan_adjusted // false')" = "true" ] && { printf 'adjust'; return 0; }
+  g="$(jget '.gates.plan // empty')"
+  case "$g" in
+    approve|adjust|reject|auto-pass) printf '%s' "$g" ;;
+    # `n/a` (bypassed) and an unset gate both mean no gate happened: logged for
+    # the proportionality question, excluded from the streak in either direction.
+    *) printf 'none' ;;
+  esac
+}
+
+# The demotion streak, computed from the entries rather than hand-maintained
+# in the log's header. The header's manual count went stale within days of
+# the rule landing — 18 clean gated chunks accumulated while it still read
+# "streak 0" — which put an instruction-to-remember at the heart of the one
+# mechanism that adapts ceremony downward from data. The log stays the data;
+# this is the arithmetic. gate:none never counts (bypassed chunks are
+# evidence about proportionality, not about the gate); adjust and reject
+# reset the run; approve and auto-pass extend it.
+field_log_streak() { # field_log_streak <log-path>
+  awk -F'|' '
+    $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ \t]*$/ && NF >= 4 {
+      gate = ""
+      for (i = 4; i <= NF; i++) {
+        if ($i ~ /^[ \t]*chafe:/) break
+        if ($i ~ /^[ \t]*gate:/) {
+          gate = $i; sub(/^[ \t]*gate:/, "", gate); sub(/[ \t]+$/, "", gate)
+          break
+        }
+      }
+      if (gate == "adjust" || gate == "reject") streak = 0
+      else if (gate == "approve" || gate == "auto-pass") streak++
+    }
+    END { print streak + 0 }
+  ' "$1"
+}
+
 scan_field_log() { # scan_field_log <log-path>
   FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
   local scanned
@@ -322,7 +426,20 @@ scan_field_log() { # scan_field_log <log-path>
       print "LINE\t" orig
       gate = ""
       for (i = 4; i <= n; i++) {
-        if ($i ~ /^chafe:/) break
+        if ($i ~ /^chafe:/) {
+          # chafe is the last field and free text, so the scan stops here: a
+          # sentence containing a pipe would otherwise be re-split into fields
+          # whose fragments match the placeholder pattern below. The field
+          # still has to be ANSWERED though, and for a long time nothing asked
+          # — `bypass` printed the work description into it, a plausible wrong
+          # value in the one field carrying qualitative evidence, sitting
+          # inside the break that made it unreachable. Tested on the WHOLE
+          # value, never a substring: a real chafe line containing a question
+          # mark is a sentence, not a placeholder.
+          v = $i; sub(/^chafe:[ \t]*/, "", v)
+          if (v == "" || v == "?") print "PLACEHOLDER\t" $i
+          break
+        }
         if ($i ~ /^gate:/) { gate = substr($i, 6); continue }
         # A field whose value is empty or still "?" is a question the retro
         # never answered. freeze refuses an unfilled predictions.md for the
@@ -417,6 +534,154 @@ check_branch() {
   fi
 }
 
+# --- what a bypassed chunk actually shipped ---------------------------------
+# There is no `implement` op and a bypassed chunk never runs `verify`, so its
+# work happens in the gap between `bypass` and this gate and appears in no
+# transcript, no `status` output and no state field. `bypass_note` records what
+# the work *would be*, in the future tense, and nothing ever reconciles it
+# against what was done. A maintainer closing a bypassed chunk in 2026-07 asked
+# "don't we have to implement this chunk?" — the work was on disk and already
+# approved, and nothing the harness printed said so.
+#
+# This is a record, not a check: it cannot fail the gate. The human has read the
+# diff and the diff is the authority. What it buys is that next session's
+# `status` can answer "what shipped here?" without a git archaeology detour.
+record_bypass_shipped() {
+  local base src paths n
+  # Two anchors, in order of authority. `baseline_sha` is the real one, but a
+  # trivial chunk frequently has none: readiness hard-fails on its empty
+  # test_paths, so the pin never happens. `bypass_base` is HEAD at the moment
+  # `bypass` ran — recorded precisely so this op has something to measure from
+  # when the chunk skipped the pin. Both use changed_paths, which spans commits,
+  # index, worktree and untracked files.
+  base="$(jget '.baseline_sha // empty')"
+  if [ -n "$base" ] && git rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
+    src="baseline:${base:0:12}"
+    paths="$(changed_paths "$base")"
+  elif base="$(jget '.bypass_base // empty')"; [ -n "$base" ] \
+       && git rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
+    src="bypass-base:${base:0:12}"
+    paths="$(changed_paths "$base")"
+  else
+    # Last resort: the uncommitted delta only. This is where a bypassed chunk's
+    # work sits *until* the human commits it — and the human committing is the
+    # design's intended exit, so a chunk gated after its commit lands here with
+    # nothing to show. That combination is what motivated bypass_base; chunks
+    # bypassed before it existed still fall through to this arm.
+    src="worktree"
+    paths="$( { git diff --name-only
+                git diff --name-only --cached
+                git ls-files --others --exclude-standard
+              } 2>/dev/null | sort -u )"
+  fi
+  # Chunk docs are bookkeeping, never the work. In `tracked` mode they would
+  # otherwise dominate the record for exactly the chunks that shipped least.
+  paths="$(printf '%s\n' "$paths" | grep -v '^$' | grep -v "^$FEATURE_REL/")"
+  n="$(printf '%s\n' "$paths" | grep -c '^..*$')"
+  if [ "$n" -eq 0 ]; then
+    warn "no changed paths visible at gate time — recording an empty shipped set."
+    warn "  If the work was committed past a baseline this chunk never pinned, the"
+    warn "  record cannot see it. That is a gap in the record, not in the work."
+  fi
+  # --slurp/--raw-input rather than a loop: paths may contain anything but a
+  # newline, and jq is already a dependency.
+  jset '.bypass_shipped = {at: $now, source: $src, n: ($p | length), paths: $p}' \
+    --arg src "$src" \
+    --argjson p "$(printf '%s\n' "$paths" | grep -v '^$' | jq -R . | jq -s .)" \
+    || return 1
+  info "shipped ($src): $n path(s)"
+  printf '%s\n' "$paths" | grep -v '^$' | sed 's/^/        /'
+  return 0
+}
+
+# --- the handoff ------------------------------------------------------------
+# `done` is terminal for the chunk and used to be a dead end for the session:
+# the gate printed "the human commits from here" and the trail stopped there.
+# The next session had to re-derive what to do next from feature.md's queue, and
+# the operator had to compose the resume prompt from memory. Every other handoff
+# in this skill is a file — non-negotiable #3 is that an answer living in chat
+# scrollback does not exist next session — and this was the one transition that
+# handed off nothing.
+#
+# The next chunk is found without parsing any markdown: sibling directories of
+# this one, glob-sorted, first whose state.json is not `done`. feature.md's queue
+# table stays the human's document; this reads the state the script itself wrote,
+# so the two cannot drift.
+next_msg() { printf 'NEXT  %s\n' "$1"; }
+print_handoff() {
+  local d rel st next_rel="" next_st="" next_name="" branch
+  for d in "$REPO_ROOT/$FEATURE_REL"/*/; do
+    [ -f "${d}state.json" ] || continue
+    rel="${d%/}"; rel="${rel#"$REPO_ROOT"/}"
+    st="$(jq -r '.stage // "specified"' "${d}state.json" 2>/dev/null)" || continue
+    [ "$st" = "done" ] && continue
+    next_rel="$rel"; next_st="$st"; next_name="$(basename "$rel")"
+    break
+  done
+  if [ -z "$next_rel" ]; then
+    # Deliberately NOT "the queue is clear". Chunk directories are stamped as
+    # each chunk comes up, so a queue of 24 can have two directories on disk and
+    # twenty-two rows that exist only in feature.md. This op reads state.json and
+    # therefore cannot see those — announcing an empty queue from an empty
+    # directory scan is a confidently wrong pointer, which is worse than
+    # silence. Caught by running this against a real feature after writing it;
+    # the fixtures agreed with the bug because every fixture chunk is stamped.
+    next_msg "no unfinished chunk directory under $FEATURE_REL."
+    next_msg "  That means every *stamped* chunk is done — not that the queue is empty."
+    next_msg "  Chunk directories are stamped as each chunk comes up, so check the queue"
+    next_msg "  table in $FEATURE_REL/feature.md for the next chunk to stamp."
+    return 0
+  fi
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  [ "$branch" = "HEAD" ] && branch="(detached)"
+  next_msg "next chunk: $next_name (stage: $next_st)"
+  next_msg "resume in a fresh session with:"
+  next_msg ""
+  next_msg "  /feature-chunker Repo: $REPO_ROOT, branch $branch."
+  next_msg "  Feature: $FEATURE_REL/feature.md — read it and"
+  next_msg "  $CHUNK_REL/retro.md first."
+  next_msg "  Chunk $(basename "$CHUNK_REL") is done. Start $next_name."
+  next_msg ""
+  next_msg "Adjust the last line if the queue says this one is blocked on a decision."
+  return 0
+}
+
+# --- the blind-predictions stamp (predict op) --------------------------------
+# predictions.md is two halves: the top is filled BEFORE the plan is read
+# (expected approach/files/risk), the bottom (disagreements, verdict) after.
+# The unfilled-blank check and the verdict-vocabulary check both pass on a
+# file filled in one pass, verdict included — they confirm the blanks are
+# gone, which is not the property the gate needs. The property is ORDER, and
+# `predict` is what observes it: it stamps a hash of the top half into
+# state.json while the verdict is still blank, and `freeze` requires the
+# stamped bytes to be identical when the verdict finally arrives. Found
+# 2026-07-29 (a chunk whose whole predictions file was written in one pass,
+# recording a gate about a plan that did not yet exist); designed the same
+# day, built 2026-08-03.
+#
+# The original design keyed on plan.md's mtime ("the stamp must precede the
+# plan being written"). Deliberately not built that way: under draft-ahead
+# (references/plan.md § Draft-ahead) a drafted plan legitimately predates the
+# arrival that fills the predictions, and mtimes are the least trustworthy
+# fact in a tree that clones and checks out. What is provable without them:
+# the top half existed filled at stamp time (predict refuses blanks), the
+# verdict did not (predict refuses one), and whether plan.md existed on disk
+# is recorded rather than guessed. Absence at stamp time plus presence at
+# freeze proves the plan came after — no clock consulted. Presence at stamp
+# time is the draft-ahead case, where blindness rests on the plan having been
+# withheld; the honesty is on the human, and recording the condition is what
+# makes the claim inspectable instead of assumed.
+predictions_top_half() { # everything above the compare-half markers
+  awk '/^## Disagreements/ || /^## Verdict/ || /^Verdict:/ { exit } { print }' "$1"
+}
+predictions_top_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then predictions_top_half "$1" | sha256sum | awk '{print $1}'
+  else predictions_top_half "$1" | shasum -a 256 | awk '{print $1}'; fi
+}
+pred_line_token() { # pred_line_token <file> <Verdict|Adjusted> — first word after the colon
+  grep -E "^$2:[[:space:]]*" "$1" | head -1 | sed -E "s/^$2:[[:space:]]*//" | awk '{print $1}'
+}
+
 case "$OP" in
 
 readiness)
@@ -485,12 +750,23 @@ readiness)
                | .branch = (if $br == "" then null else $br end)
                | .artifacts = (.artifacts // null)
                | .field_log = (.field_log // null)
+               | .size_class_corrected = (.size_class_corrected // null)
+               | .bypass_shipped = (.bypass_shipped // null)
+               | .bypass_base = (.bypass_base // null)
+               | .bypass_suite = (.bypass_suite // null)
+               | .freeze_suite = (.freeze_suite // null)
+               | .predict = (.predict // null)
                | .chunk = (.chunk // .segment) | del(.segment)
                | .schema_version = $smax
                | if $rebase then
                      .test_hashes = {} | .oracle_red = null | .oracle_green = null
                    | .gates.plan = null | .gates.plan_adjusted = null
-                   | .plan_approved_sha = null
+                   | .plan_approved_sha = null | .predict = null
+                   # bypass_note is what tells `verify` this chunk took the
+                   # bypass route. A rebaseline puts it back into the
+                   # lifecycle, so leaving it set would refuse the very op the
+                   # rebaseline exists to re-enable.
+                   | .bypass_note = null | .bypass_base = null
                  else . end' \
           --arg sha "$head_sha" --arg br "$cur_branch" --argjson smax "$SCHEMA_MAX" \
           --argjson rebase "$( [ "$OPT_REBASELINE" -eq 1 ] && echo true || echo false )"
@@ -499,6 +775,54 @@ readiness)
       fi
     else
       fail "not ready — fix blockers above before planning"
+    fi
+  fi
+  ;;
+
+predict)
+  [ -z "$EXTRA1" ] || die "predict takes no positional arguments"
+  stage="$(jget '.stage')"
+  case "$stage" in
+    ready) pass "predict legal from stage 'ready'" ;;
+    *) fail "predict is legal from stage 'ready' only — the top half is stamped after readiness, before the plan is read; found '$stage'" ;;
+  esac
+  pred="$CHUNK_DIR/predictions.md"
+  if [ ! -f "$pred" ]; then
+    fail "predictions.md missing — stamp it from templates/predictions.md and fill the top half first"
+  else
+    if predictions_top_half "$pred" | grep -q '___'; then
+      fail "the top half still has unfilled blanks — predict stamps a prediction, and an untouched template is not one"
+    fi
+    v_tok="$(pred_line_token "$pred" Verdict)"
+    a_tok="$(pred_line_token "$pred" Adjusted)"
+    case "$v_tok" in
+      ""|___) ;;
+      *) fail "predictions.md already carries a verdict ('$v_tok') — predict stamps the blind top"
+         fail "  half BEFORE the plan is read. A file filled in one pass records a gate's outcome"
+         fail "  about a plan that did not exist yet, which is the incident this op closes." ;;
+    esac
+    case "$a_tok" in
+      ""|___) ;;
+      *) fail "predictions.md already answers Adjusted ('$a_tok') — that line belongs to the verdict, after the plan is read" ;;
+    esac
+  fi
+  if [ "$FAIL" -eq 0 ]; then
+    prior="$(jget '.predict.at // empty')"
+    [ -n "$prior" ] && warn "replacing predict stamp from $prior — legal while the plan is unread; freeze checks the final stamp"
+    plan_present=false
+    if [ -f "$CHUNK_DIR/plan.md" ]; then
+      plan_present=true
+      warn "plan.md already on disk — recording plan_present=true (draft-ahead). Blindness now"
+      warn "  rests on the plan having been withheld until the blanks were filled; recording"
+      warn "  the condition is what keeps that claim inspectable instead of assumed."
+    fi
+    if jset '.predict = {at: $now, top_hash: $h, plan_present: $pp}' \
+        --arg h "$(predictions_top_hash "$pred")" --argjson pp "$plan_present"; then
+      if [ "$plan_present" = "true" ]; then
+        pass "top half stamped — plan_present=true recorded; freeze will report this tier"
+      else
+        pass "top half stamped — no plan.md on disk: blind by construction"
+      fi
     fi
   fi
   ;;
@@ -539,7 +863,20 @@ freeze)
   if [ ! -f "$pred" ]; then
     fail "predictions.md missing — the plan gate is predict-then-compare and it did not happen"
   else
-    grep -q '___' "$pred" && fail "predictions.md still has unfilled blanks (___) — the gate was not run"
+    # Blind predictions gate `standard` chunks only — softened 2026-07-31 by
+    # operator decision after field-log entries 07–12 showed the blanks
+    # degrading on smaller chunks (unfilled placeholders four chunks running,
+    # then boilerplate). The gate itself still runs at every size: the
+    # Verdict/Adjusted parse below stays mandatory, so the demotion rule keeps
+    # its input and an untouched template is still refused — on the verdict
+    # line rather than the blanks.
+    if grep -q '___' "$pred"; then
+      if [ "$(jget '.size_class // empty')" = "standard" ]; then
+        fail "predictions.md still has unfilled blanks (___) — the gate was not run"
+      else
+        warn "predictions blanks left unfilled — tolerated below 'standard' (softened 2026-07-31); Verdict/Adjusted are still required"
+      fi
+    fi
     verdict="$(grep -E '^Verdict:[[:space:]]*' "$pred" | head -1 \
                | sed -E 's/^Verdict:[[:space:]]*//' | awk '{print $1}')"
     case "$verdict" in
@@ -555,6 +892,34 @@ freeze)
       n|no)  GATE_ADJUSTED=false ;;
       *)     fail "predictions.md has no 'Adjusted: y|n' line — the demotion rule counts adjustments, not just rejections" ;;
     esac
+
+    # -- the predict stamp: 'blind' as a checkable property (see the predict
+    #    op's header comment for the full argument). The stamp is required on
+    #    `standard` chunks — non-negotiable #6 claims both gates are
+    #    instrumented, and before this check the blind half of predict-then-
+    #    compare was instrumented in vocabulary only. Below `standard` the
+    #    stamp is optional (the 2026-07-31 softening), but a stamp that
+    #    exists is held to at every size: `small` relaxes whether you must
+    #    predict, never whether a recorded prediction is honest.
+    stamp_at="$(jget '.predict.at // empty')"
+    if [ -n "$stamp_at" ]; then
+      if [ "$(predictions_top_hash "$pred")" = "$(jget '.predict.top_hash // empty')" ]; then
+        if [ "$(jget '.predict.plan_present')" = "true" ]; then
+          pass "predict stamp verified ($stamp_at) — plan.md was on disk at stamp time: blindness rests on it having been withheld (draft-ahead)"
+        else
+          pass "predict stamp verified ($stamp_at) — stamped before plan.md existed: blind by construction"
+        fi
+      else
+        fail "predictions.md's top half changed after the predict stamp ($stamp_at) — the stamp no"
+        fail "  longer proves the predictions predate the plan. If the edit was honest (made before"
+        fail "  the plan was read), re-run: chunk-check.sh predict $CHUNK_REL"
+      fi
+    elif [ "$(jget '.size_class // empty')" = "standard" ]; then
+      fail "no predict stamp — on a 'standard' chunk the blind half of the gate is instrumented:"
+      fail "  fill the top half, then run chunk-check.sh predict $CHUNK_REL before reading the plan"
+    else
+      info "no predict stamp (optional below 'standard' — softened 2026-07-31)"
+    fi
   fi
 
   n_scope="$(jq -r '.scope_paths | length' "$STATE")"
@@ -602,6 +967,24 @@ freeze)
   fi
 
   if [ "$FAIL" -eq 0 ]; then
+    # Non-gating suite probe, run once before the stamp. `suite_cmd` is
+    # *expected* to be red here — the file(s) just hash-pinned above are this
+    # chunk's own oracle, unimplemented by construction, and the chunk's own
+    # tests usually sit inside `suite_cmd`, so from freeze until
+    # implementation goes green the suite carries their red. So a red exit
+    # alone proves nothing new. What this catches is a break that has nothing
+    # to do with that expected redness: a lint/doctrine/schema failure baked
+    # into the newly-pinned test file itself, which today stays invisible
+    # until implement's first full-suite run — discovered the hard way twice
+    # (skill-engine chunks 14 and 15: a stray path reference and a dead
+    # variable respectively, both inside the frozen oracle's own header,
+    # both shellcheck/doctrine-only breaks unrelated to any test assertion).
+    # Read the captured output above (or freeze_suite.exit below) for *where*
+    # it failed, not just whether — a suite that dies in shellcheck before
+    # ever reaching the tests phase looks identical, exit-code-wise, to one
+    # that reached the tests phase and hit only the expected new-oracle red.
+    record_suite_result "freeze_suite" \
+      "expected while this chunk's own oracle is unimplemented — but read the output above: if it died somewhere other than this chunk's new test(s) (shellcheck, doctrine, json, another suite's tests), that's a break baked into the files just hash-pinned, not this chunk's normal red state"
     hashes="$(compute_hashes_json)"
     head_sha="$(git rev-parse HEAD)"
     ids_json="$(printf '%s' "$red_ids" | ids_to_json)"
@@ -612,7 +995,8 @@ freeze)
         | .gates.plan_adjusted = $adjusted
         | .stage               = "approved"
         | .oracle_red = { cmd: $ocmd, exit_code: $orc, node_ids: $ids,
-                          id_source: $isrc, at: $now }' \
+                          id_source: $isrc, at: $now }
+        | .freeze_suite       = $fsuite' \
         --argjson h        "$hashes" \
         --arg     sha      "$head_sha" \
         --arg     verdict  "$verdict" \
@@ -620,7 +1004,8 @@ freeze)
         --arg     ocmd     "$(jget '.oracle_cmd')" \
         --argjson orc      "$oracle_rc" \
         --argjson ids      "$ids_json" \
-        --arg     isrc     "$id_source"
+        --arg     isrc     "$id_source" \
+        --argjson fsuite   "$SUITE_JSON"
     then
       pass "oracle frozen ($count tracked file(s) hash-pinned), plan approved at ${head_sha:0:12}, stage=approved"
     fi
@@ -628,6 +1013,28 @@ freeze)
   ;;
 
 verify)
+  # A bypassed chunk's exit is the review gate, not this op. It has no plan
+  # gate and no freeze, so verify's first three checks are all asking about an
+  # oracle that was never supposed to exist — and after `bypass --downgrade`,
+  # about one that was deliberately deleted. Refusing here is cheap; not
+  # refusing costs a full suite run and then reports the intended state of the
+  # world as a wall of failures, which teaches the operator to read this op's
+  # output as noise. `die`, not `fail`: this is the wrong op, not a failed check.
+  #
+  # Keyed on bypass_note, NOT on stage == "bypassed". The first version of this
+  # guard used the stage and was useless the moment the chunk it was written for
+  # passed its gate: `bypassed` -> `done` is one op, and the `done` chunk still
+  # had no oracle. bypass_note is set by both bypass paths and survives that
+  # transition, so it marks "this chunk took the bypass route" for as long as
+  # that stays true. `readiness --rebaseline` clears it, because that genuinely
+  # restarts the chunk into the lifecycle.
+  [ "$(jget '.bypass_note // empty')" = "" ] \
+    || die "verify does not apply to a bypassed chunk — it has no frozen oracle to check.
+      A bypassed chunk's only exit is the human: chunk-check.sh gate $CHUNK_REL approved
+      (the commit prohibition still covers it; the gate is what enforces that).
+      To put this chunk through the full lifecycle instead:
+      chunk-check.sh readiness $CHUNK_REL --rebaseline"
+
   base="$(jget '.baseline_sha // empty')"
   [ -n "$base" ] || die "baseline_sha not set — run readiness first"
   frozen="$(jget '.test_hashes')"
@@ -705,17 +1112,30 @@ verify)
   # 4) Suite green — rerun now, not recalled.
   run_suite || true
 
-  # 5) No commits. The harness makes none; a commit before the review gate
-  #    collapses the outer gate the whole design is built around.
+  # 5) Premature commits. The harness makes none; a commit before the review
+  #    gate is a process fact, independent of whether the green just proven
+  #    above is honest — so it must not block *recording* that green. It
+  #    used to: this check failed outright, which kept stage from ever
+  #    reaching `verified`, which is the one stage `gate` (the only op that
+  #    can acknowledge a premature commit) is legal from — a chunk whose
+  #    first-ever verify happened after a commit had no path out. Recording
+  #    the fact in `gates.review` as `premature` instead of `pending` keeps
+  #    `stage=verified` reachable on its own honest terms, and moves
+  #    enforcement to where a human actually acts: `gate approved` below now
+  #    refuses a `premature` chunk without an explicit note. Found 2026-07-31
+  #    (skill-engine 12-make-sync): a bundled human commit landed before
+  #    verify had ever succeeded once, and the chunk was stuck at `approved`
+  #    with no legal op that could move it.
   n_commits="$(git rev-list --count "$base"..HEAD 2>/dev/null || echo 0)"
   review="$(jget '.gates.review // empty')"
+  premature_commit=0
   if [ "$n_commits" -gt 0 ] && [ "$review" != "approved" ]; then
-    fail "$n_commits commit(s) since baseline with the review gate not approved."
-    fail "  Review-before-commit is the outer gate; committing first deletes it."
-    fail "  If the human has already reviewed, record it with"
-    fail "  chunk-check.sh gate $CHUNK_REL approved, then re-run verify."
-    fail "  Otherwise surface these to the human:"
+    warn "$n_commits commit(s) since baseline, before the review gate."
+    warn "  Review-before-commit is the outer gate; committing first bypassed it."
+    warn "  Recording gates.review=premature — 'gate approved' will require an"
+    warn "  explicit note acknowledging this before it can stamp done."
     git --no-pager log --oneline "$base"..HEAD | sed 's/^/        /'
+    premature_commit=1
   elif [ "$n_commits" -gt 0 ]; then
     info "commits since baseline: $n_commits — review gate already approved; these are the human's"
   else
@@ -723,10 +1143,14 @@ verify)
   fi
 
   if [ "$FAIL" -eq 0 ]; then
-    if jset '.stage="verified" | .gates.review="pending"
+    review_stamp="pending"
+    [ "$premature_commit" -eq 1 ] && review_stamp="premature"
+    [ "$review" = "approved" ] && review_stamp="approved"
+    if jset '.stage="verified" | .gates.review=$r
              | .oracle_green = { evidence_tier: $tier, at: $now }' \
-        --arg tier "$evidence_tier"; then
+        --arg tier "$evidence_tier" --arg r "$review_stamp"; then
       pass "stage=verified (oracle evidence: $evidence_tier) — assemble the review packet; human reviews BEFORE commit"
+      [ "$premature_commit" -eq 1 ] && warn "gates.review=premature — gate approved must acknowledge the early commit with a note"
     fi
   else
     fail "verify failed — green is not honest; do not spend human review time on this"
@@ -760,7 +1184,15 @@ log)
     else
       case "$FL_GATE" in
         approve|adjust|reject|auto-pass|none)
-          pass "field-log entry found: gate:$FL_GATE" ;;
+          exp_gate="$(expected_field_log_gate)"
+          if [ "$FL_GATE" = "$exp_gate" ]; then
+            pass "field-log entry found: gate:$FL_GATE"
+          else
+            fail "field-log says gate:$FL_GATE but the gate did something else (state.json: plan=$(jget '.gates.plan') adjusted=$(jget '.gates.plan_adjusted') -> gate:$exp_gate)"
+            fail "  This is not cosmetic: the demotion rule reads this field, so logging an"
+            fail "  adjusted plan gate as 'approve' counts a catch toward retiring the gate"
+            fail "  that caught it. Fix the line, not state.json."
+          fi ;;
         "") fail "the field-log entry has no legal gate: field — the demotion rule reads it, so an entry without one counts in neither direction" ;;
         *)  fail "the field-log entry has no legal gate: field (found 'gate:$FL_GATE'; expected approve|adjust|reject|auto-pass|none)" ;;
       esac
@@ -772,6 +1204,7 @@ log)
           pass "field-log entry verified and recorded"
           info "  $FL_LINE"
           info "the review gate will re-read this file rather than trust the record"
+          info "demotion streak: $(field_log_streak "$log_path") consecutive clean gated chunk(s) — adjust/reject reset it, gate:none excluded; the rule and its n live in the log's header"
         fi
       fi
     fi
@@ -789,6 +1222,24 @@ gate)
   case "$EXTRA1" in
     approved)
       new_stage="done"
+      # A `premature` gates.review (verify recorded a commit that landed
+      # before the review gate — see the verify op's step 5) must be
+      # explicitly acknowledged here, in the one verdict that makes the
+      # chunk terminal. Reusing gate_note's existing "append to blockers"
+      # path rather than a new field: the acknowledgment is exactly the same
+      # shape of evidence a rejection reason is, just attached to the
+      # opposite verdict.
+      prior_review="$(jget '.gates.review // empty')"
+      if [ "$prior_review" = "premature" ]; then
+        gate_note="$EXTRA2"
+        if [ -z "$gate_note" ]; then
+          fail "gates.review is 'premature' — a commit landed before verify first passed."
+          fail "  approved requires a note acknowledging the human's after-the-fact review:"
+          fail "  chunk-check.sh gate $CHUNK_REL approved \"<note>\""
+        else
+          pass "premature-commit acknowledgment recorded: $gate_note"
+        fi
+      fi
       # `done` is terminal, so it is the last moment the evidence can be
       # required at all. Only this verdict demands it: a chunk going back to
       # implement or to blocked has not finished, and charging it for a retro
@@ -826,34 +1277,96 @@ gate)
              | .blockers = (if $note == "" then .blockers else .blockers + [$note] end)' \
         --arg v "$EXTRA1" --arg s "$new_stage" --arg note "$gate_note"; then
       pass "review gate: $EXTRA1 — stage=$new_stage"
-      [ "$EXTRA1" = "approved" ] && info "the human commits from here; the harness still does not"
+      if [ "$EXTRA1" = "approved" ]; then
+        info "the human commits from here; the harness still does not"
+        # Ordered deliberately: the shipped record is about the chunk closing,
+        # the handoff is about the session continuing, and the handoff prints
+        # last so it is what the operator's eye lands on.
+        [ -n "$(jget '.bypass_note // empty')" ] && record_bypass_shipped
+        print_handoff
+      fi
     fi
   fi
   ;;
 
 bypass)
   stage="$(jget '.stage')"
-  case "$stage" in
-    specified|ready) ;;
-    *) fail "bypass is legal only from 'specified' or 'ready'; found '$stage' — a frozen chunk cannot be bypassed" ;;
-  esac
   size_class="$(jget '.size_class // empty')"
-  [ "$size_class" = "trivial" ] \
-    || fail "bypass requires size_class 'trivial' (found '${size_class:-unset}') — non-negotiable #7 is proportionality, not convenience"
+  if [ "$OPT_DOWNGRADE" -eq 1 ]; then
+    # The correction path. A chunk escalated out of `trivial` by mistake used to
+    # have no exit: `bypass` was illegal past `ready`, so once the misjudgement
+    # was visible the only moves were `blocked` (which means unfinished work,
+    # and this work is finished) or grinding through gates nobody needed. Both
+    # lose the escalation error, which is the single most valuable thing the
+    # proportionality dataset can record.
+    #
+    # What this path does NOT do is skip the review gate: `bypassed` still
+    # exits through `gate`, and `gate approved` still re-reads the field log.
+    # What it does skip is `verify` — so it is deliberately explicit (a flag,
+    # never inferred), it demands a reason, and it records where it was used
+    # from. The freeze evidence is left in place on purpose: `test_hashes` and
+    # `oracle_red` are the receipt for what the over-escalation cost.
+    case "$stage" in
+      done)     fail "--downgrade is legal from any stage before 'done'; found 'done' — a closed chunk is not re-opened here" ;;
+      bypassed) fail "--downgrade is legal from any stage before 'done'; found 'bypassed' — this chunk is already bypassed" ;;
+      *)        pass "bypass --downgrade legal from stage '$stage'" ;;
+    esac
+    [ "$size_class" != "trivial" ] \
+      || fail "--downgrade corrects an over-escalation, but size_class is already 'trivial' — run bypass without the flag"
+  else
+    case "$stage" in
+      specified|ready) ;;
+      *) fail "bypass is legal only from 'specified' or 'ready'; found '$stage' — a frozen chunk cannot be bypassed. If the escalation itself was the error, correct it: bypass --downgrade" ;;
+    esac
+    [ "$size_class" = "trivial" ] \
+      || fail "bypass requires size_class 'trivial' (found '${size_class:-unset}') — non-negotiable #7 is proportionality, not convenience"
+  fi
   [ -n "$EXTRA1" ] || fail "bypass needs a one-line description of the work — it is the entire log entry"
   # Join the positionals the way `block` does: bypass_note is the entire record
   # of a bypassed chunk, so an unquoted description silently truncated to its
   # first word loses the only evidence the ceremony was disproportionate.
   bypass_note="$EXTRA1${EXTRA2:+ $EXTRA2}"
   if [ "$FAIL" -eq 0 ]; then
-    if jset '.stage="bypassed" | .gates.plan="n/a" | .gates.plan_adjusted=false
-             | .gates.review="pending" | .bypass_note=$n' --arg n "$bypass_note"; then
+    # Before the stamp, not after: the value of this run is knowing the repo was
+    # green BEFORE the work, so it has to happen while "before" is still true.
+    record_suite_result "bypass_suite" "it predates this chunk; whether that blocks the work is the review gate's call"
+    if [ "$OPT_DOWNGRADE" -eq 1 ]; then
+      # The plan gate really ran here, so its verdict is real data the demotion
+      # streak is entitled to — unlike a straight bypass, which prints
+      # `gate:none` because no gate ever happened. Everything the partial
+      # lifecycle can answer is left as `?` for the retro to fill; only
+      # `ceremony-ok` is pre-filled, because `n` is what this path *means*.
+      # Same derivation `log` will check this line against, from one function:
+      # a line this script printed and then refused would be the worst of both.
+      fl_gate="$(expected_field_log_gate)"
+      if jset '.stage="bypassed" | .gates.review="pending" | .bypass_note=$n
+               | .bypass_base=(if $base == "" then null else $base end)
+               | .bypass_suite=$suite
+               | .size_class_corrected={from: .size_class, to: "trivial", from_stage: $st, reason: $n, at: $now}
+               | .size_class="trivial"' --arg n "$bypass_note" --arg st "$stage" \
+               --argjson suite "$SUITE_JSON" \
+               --arg base "$(git rev-parse HEAD 2>/dev/null || printf '')"; then
+        pass "stage=bypassed, size_class $size_class -> trivial (correction recorded)"
+        warn "update spec.md's \`size-class\` block to 'trivial' as well — readiness hard-fails on the divergence"
+        info "freeze evidence left in place: it is the record of what the over-escalation cost"
+        info "record the verdict with: chunk-check.sh gate $CHUNK_REL approved"
+        printf 'FIELDLOG %s | %s | %s | gate:%s | oracle-caught:? | freeze-trip:? | scope-dev:? | bypass:y | ceremony-ok:n | context:? | chafe: ?\n' \
+          "$(date -u +%Y-%m-%d)" "$(basename "$REPO_ROOT")" "$(jget '.chunk')" "$fl_gate"
+        info "append the FIELDLOG line above to the field log using Write/Edit (a shell append may be denied by the sandbox); default path ~/.claude/feature-chunker-field-log.md, or the repo-local path feature.md names for a team"
+        info "fill every '?' from retro.md — 'log' refuses a line with a '?' left in it — then: chunk-check.sh log $CHUNK_REL"
+      fi
+    elif jset '.stage="bypassed" | .gates.plan="n/a" | .gates.plan_adjusted=false
+             | .gates.review="pending" | .bypass_note=$n
+             | .bypass_base=(if $base == "" then null else $base end)
+             | .bypass_suite=$suite' \
+             --arg n "$bypass_note" --argjson suite "$SUITE_JSON" \
+             --arg base "$(git rev-parse HEAD 2>/dev/null || printf '')"; then
       pass "stage=bypassed — do the work, then hand the diff to the human"
       info "record the verdict with: chunk-check.sh gate $CHUNK_REL approved"
-      printf 'FIELDLOG %s | %s | %s | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n/a | bypass:y | ceremony-ok:? | context:? | chafe: %s\n' \
-        "$(date -u +%Y-%m-%d)" "$(basename "$REPO_ROOT")" "$(jget '.chunk')" "$bypass_note"
+      printf 'FIELDLOG %s | %s | %s | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n/a | bypass:y | ceremony-ok:? | context:? | chafe: ?\n' \
+        "$(date -u +%Y-%m-%d)" "$(basename "$REPO_ROOT")" "$(jget '.chunk')"
       info "append the FIELDLOG line above to the field log using Write/Edit (a shell append may be denied by the sandbox); default path ~/.claude/feature-chunker-field-log.md, or the repo-local path feature.md names for a team"
-      info "fill ceremony-ok:? and context:? in — 'log' refuses a line with a '?' left in it — then: chunk-check.sh log $CHUNK_REL"
+      info "fill every '?' from retro.md, chafe: included — 'log' refuses a line with a '?' left in it — then: chunk-check.sh log $CHUNK_REL"
     fi
   fi
   ;;
@@ -870,13 +1383,15 @@ block)
 status)
   jq -r '"chunk:          \(.chunk)",
          "stage:          \(.stage)",
-         "size_class:     \(.size_class)",
+         "size_class:     \(.size_class)\(if .size_class_corrected then "  (corrected from \(.size_class_corrected.from) at stage \(.size_class_corrected.from_stage))" else "" end)",
          "artifacts:      \(.artifacts // "undeclared")",
          "branch:         \(.branch // "-")",
          "suite_cmd:      \(.suite_cmd)",
          "oracle_cmd:     \(.oracle_cmd)",
          "oracle red:     exit \(.oracle_red.exit_code // "-") · \((.oracle_red.node_ids // []) | length) node-id(s) · \(.oracle_red.id_source // "-")",
          "oracle green:   \(.oracle_green.evidence_tier // "-")",
+         "predict:        \(if .predict then "stamped \(.predict.at) · plan_present=\(.predict.plan_present)" else "-" end)",
+         "freeze suite:   \(if .freeze_suite then "exit \(.freeze_suite.exit) · \(.freeze_suite.cmd)" else "-" end)",
          "baseline_sha:   \(.baseline_sha)",
          "baseline_prev:  \(.baseline_prev_sha)",
          "plan_approved:  \(.plan_approved_sha)",
@@ -885,6 +1400,8 @@ status)
          "deviations:     \(.deviations | length)",
          "blockers:       \(.blockers | length)",
          "bypass_note:    \(.bypass_note)",
+         "bypass suite:   \(if .bypass_suite then "exit \(.bypass_suite.exit) · \(.bypass_suite.cmd)" else "-" end)",
+         "shipped:        \(if .bypass_shipped then "\(.bypass_shipped.n) path(s) via \(.bypass_shipped.source): \((.bypass_shipped.paths // []) | join(", "))" else "-" end)",
          "gates:          plan=\(.gates.plan) adjusted=\(.gates.plan_adjusted) review=\(.gates.review)",
          "updated:        \(.updated)"' "$STATE"
   ;;

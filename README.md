@@ -11,8 +11,9 @@ written before the plan exists, demonstrated failing before implementation
 exists, hash-pinned at approval, and re-run at the end. What passes the gate is
 what the runner says, not what the transcript says.
 
-📦 **[Download `feature-chunker.zip`](feature-chunker.zip)** — the complete
-skill, ready to unpack into `~/.claude/skills/`. See [Install](#install).
+🧰 **Install from a clone** — `SKILL.md`, `references/`, `bin/`, `templates/`
+copy into `~/.claude/skills/`; this repository is the canonical source. See
+[Install](#install).
 
 ---
 
@@ -78,11 +79,11 @@ flowchart TD
 
     RDY --> TV["Track V — isolated subagent<br/>sees spec.md, never the plan<br/>writes executable tests, runs them RED"]
     TV --> TP["Track P — parent session<br/>writes a cold-executable plan.md"]
-    TP --> G1{{"HUMAN GATE 1 — predict-then-compare<br/>predictions.md filled in<br/>before the plan is read"}}
+    TP --> G1{{"HUMAN GATE 1 — predict-then-compare<br/>predictions.md filled and stamped<br/>(chunk-check.sh predict)<br/>before the plan is read"}}
     G1 -->|"reject"| BLK
     G1 -->|"adjust"| TP
     G1 -->|"approve"| K2{"chunk-check.sh freeze"}
-    K2 -->|"oracle exits 0 · a test was green at birth<br/>a collection ERROR · spec / state mismatch"| BLK
+    K2 -->|"oracle exits 0 · a test was green at birth<br/>a collection ERROR · spec / state mismatch<br/>predict stamp missing (standard) or changed"| BLK
     K2 -->|"oracle demonstrably RED<br/>every tracked test file hash-pinned"| APR(["approved"])
 
     APR --> IMP["implement<br/>execute the plan to green<br/>never touch the oracle · never commit"]
@@ -97,6 +98,7 @@ flowchart TD
     G2 -->|"approved"| DONE(["done"])
     DONE --> HC["the human commits<br/>the harness never does"]
     DONE --> RT["retro.md → one binary line<br/>appended to the field log"]
+    DONE -.->|"after the LAST chunk —<br/>once per feature, not per chunk"| FC["feature-close<br/>independent whole-diff review by a reviewer<br/>that did not write the chunks<br/>recorded as a repo artifact"]
 
     BLK -.->|"readiness --rebaseline<br/>clears the freeze, restarts the gate"| RDY
     SP -.->|"size_class = trivial — no design<br/>decision, 1-2 files, reversible"| BYP(["bypassed"])
@@ -106,16 +108,20 @@ flowchart TD
     classDef script fill:#dbeafe,stroke:#1d4ed8,color:#0b1324;
     classDef stage fill:#dcfce7,stroke:#15803d,color:#052e16;
     classDef stop fill:#fee2e2,stroke:#b91c1c,color:#450a0a;
+    classDef feature fill:#f3e8ff,stroke:#7e22ce,color:#2e1065;
     class G1,G2 gate
     class K1,K2,K3 script
     class RDY,APR,VER,DONE,BYP stage
     class BLK stop
+    class FC feature
 ```
 
 **Reading the diagram:** blue diamonds are executed code — the only things that
 move a stage. Amber is a human gate. Green is a recorded state in `state.json`.
 Every condition on an edge leaving a blue diamond is a literal pass or refusal in
-`bin/chunk-check.sh`, not a description of intent.
+`bin/chunk-check.sh`, not a description of intent. The purple tail is the one
+once-per-feature stage: `feature-close` runs after the last chunk's `done`, and
+its record is a repo artifact rather than a `state.json` field.
 
 Four operations correspond to the four phases, and an agent loads **only the one
 in play**:
@@ -126,6 +132,17 @@ in play**:
 | `plan` | Stage is `ready` | Track V writes the red oracle in isolation; Track P writes a cold-executable plan; the human plan gate runs; the oracle is frozen. |
 | `implement` | Stage is `approved` | Execute the plan to green without touching the oracle and without committing. |
 | `audit-implementation` | Implementation done | Deterministic verify, assemble the review packet, run the human gate, write the retro. |
+
+One more stage runs once per **feature** rather than once per chunk:
+`feature-close` (`references/feature-close.md`). After the last chunk is done
+and before release, the cumulative diff gets an independent review by a
+reviewer that did not write the chunks — because per-chunk gates structurally
+cannot see the seams between chunks, and a same-author oracle plus a
+same-thread human review cannot have uncorrelated blind spots with the
+implementation. The first full feature proved the gap: ten defects shipped
+through 24 approved chunks and an independent whole-diff review found them in
+minutes. The review is recorded as a repo artifact, and its findings feed a
+findings-remediation workflow.
 
 ---
 
@@ -162,10 +179,12 @@ an agent to be careful.
 | Op | Refuses to proceed unless… |
 |---|---|
 | `readiness` | `baseline_sha` resolves to a real commit; `spec.md`'s four fenced blocks equal their `state.json` counterparts **in both directions**; the declared `artifacts` mode matches what git is actually doing; `scope_paths` and `test_paths` are non-empty; `size_class` is one of three values; the baseline suite is green. Then it pins the baseline SHA and branch. |
-| `freeze` | The plan gate ran and returned `approve` (an `adjust` or `reject` verdict is refused outright, and an untouched `predictions.md` template is refused); all four spec blocks agree with state; `oracle_cmd` **executes with a non-zero exit**; no test reported `PASSED` in that run; no `ERROR` line appears in it. Then it hash-pins every tracked file under `test_paths` and records the red node-ids. |
+| `predict` | The stage is `ready`; `predictions.md`'s top half is filled and its verdict is still blank — a file filled in one pass, verdict included, is refused, because it records a gate outcome about a plan that did not yet exist. Then it stamps the top half's hash into `state.json`, noting whether a plan draft was on disk. |
+| `freeze` | The plan gate ran and returned `approve` (an `adjust` or `reject` verdict is refused outright, and an untouched `predictions.md` template is refused); the `predict` stamp exists on a `standard` chunk and any existing stamp's top half is byte-identical; all four spec blocks agree with state; `oracle_cmd` **executes with a non-zero exit**; no test reported `PASSED` in that run; no `ERROR` line appears in it. Then it hash-pins every tracked file under `test_paths` and records the red node-ids. |
 | `verify` | Every pinned test file is byte-identical; no test file was added or removed under `test_paths`; every changed path since baseline falls inside declared scope; the frozen `oracle_cmd` — **the same string** — now exits zero with every frozen red node-id reported `PASSED`; the full suite is green; no commits exist that the review gate has not approved. |
+| `log` | The chunk's field-log line is really on disk, carries the `gate:` verdict the state actually recorded (derived, so an adjusted gate cannot be logged as a clean approval), and leaves no field unanswered. It also prints the demotion streak, computed from the entries rather than hand-maintained. |
 | `gate <verdict>` | The stage is `verified` or `bypassed`. It cannot be used to skip the verification it is supposed to follow. |
-| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready`. |
+| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or, with `--downgrade`, any pre-`done` stage: an over-escalation is corrected and recorded rather than ground through gates nobody needs. |
 | `block` / `status` | — (record a blocker with a required reason; print state) |
 
 Three of those deserve to be called out, because they are the ones that close
@@ -179,10 +198,11 @@ loopholes rather than check boxes:
 - **A narrowed command cannot buy a green.** `verify` re-runs the exact string
   pinned at freeze and requires each previously-red node-id to appear as
   `PASSED`. A skip, a rename, or a test that stopped being collected fails here.
-- **The harness never commits, and the rule is enforced twice.**
-  `hooks/chunk-no-commit.py` is a `PreToolUse` hook that *prevents* the tool call
-  while any chunk sits at `ready`/`approved`/`verified` without an approved
-  review gate — including through `sh -c` payloads and wrapper words like `env`.
+- **The harness never commits, and the rule is enforced twice.** An optional
+  `PreToolUse` hook — user-level configuration, not repository content; see
+  [Install](#install) — *prevents* the tool call while any chunk sits at
+  `ready`/`approved`/`verified` without an approved review gate, including
+  through `sh -c` payloads and wrapper words like `env`.
   `verify` independently *detects* commits made since baseline and hard-fails.
   Neither reaches the human's own terminal, which is correct: the human
   committing is the design's intended exit, not the threat.
@@ -204,7 +224,6 @@ and then tried to break it."
 
 ```zsh
 bash bin/test-chunk-check.sh      # the harness's oracle
-pytest hooks/test_chunk_no_commit.py   # the preventer hook's oracle
 ```
 
 ---
@@ -342,9 +361,8 @@ fail and puts a program in the path.
 
 ## Install
 
-**Requirements:** `bash`, `git`, `jq`. Python 3 only if you install the
-commit-preventer hook. The oracle and suite are shell command strings, so the
-target project can be in any language with any test runner.
+**Requirements:** `bash`, `git`, `jq`. The oracle and suite are shell command
+strings, so the target project can be in any language with any test runner.
 
 Designed for [Claude Code](https://docs.claude.com/en/docs/claude-code) Agent
 Skills. The harness itself is a standalone script — nothing in
@@ -352,25 +370,21 @@ Skills. The harness itself is a standalone script — nothing in
 
 ### 1. The skill
 
-Download **[`feature-chunker.zip`](feature-chunker.zip)** and unpack it. The
-archive contains a single `feature-chunker/` directory — `SKILL.md`,
-`references/`, `bin/`, `templates/` — and nothing else:
+From a clone of this repository — what installs is `SKILL.md`, `references/`,
+`bin/`, `templates/`, and nothing else:
 
 ```zsh
-unzip feature-chunker.zip -d ~/.claude/skills/
-```
-
-Or from a clone:
-
-```zsh
-rsync -a --exclude '.git' --exclude '.DS_Store' --exclude '*.zip' \
-      --exclude 'hooks' --exclude 'README.md' \
-      --exclude '__pycache__' --exclude '.pytest_cache' \
+rsync -a --exclude '.git' --exclude '.DS_Store' \
+      --exclude 'README.md' --exclude 'LICENSE' \
+      --exclude 'CHANGELOG.md' --exclude 'CANDIDATES.md' \
+      --exclude '.gitignore' \
       ./ ~/.claude/skills/feature-chunker/
 ```
 
-The excludes matter: a stray cache directory riding along is noise in an artifact
-whose whole argument is that nothing unexamined ships.
+The excludes matter: a repo-only file riding along is noise in an artifact
+whose whole argument is that nothing unexamined ships. The repo is canonical and
+the installed copy is an install, not a fork — improvements land here, versioned,
+and re-run the rsync (CHANGELOG.md is the record of what changed and why).
 
 **User-level is the default, and the design assumes it.** The field log lives
 outside both the skill directory and any repo because the evidence base spans
@@ -382,15 +396,16 @@ log into the repo.
 
 ### 2. The commit-preventer hook (optional, recommended)
 
-The hook is user-level configuration rather than skill content, so it lives
-outside the skill directory, ships outside the archive, and installs separately.
-From a clone of this repository:
+The hook is user-level configuration rather than skill content, and this
+repository does not ship one — like `feature-close`'s independent reviewer, it
+is a per-install contract. What yours must do: deny a `git commit` tool call
+while any chunk in the project sits at `ready`/`approved`/`verified` without an
+approved review gate — including commits arriving through `sh -c` payloads and
+wrapper words like `env`. `references/setup.md` § The commit-preventer hook
+records the bypass shapes a hand probe found, and the tail a static parser
+deliberately leaves to `verify`.
 
-```zsh
-cp hooks/chunk-no-commit.py ~/.claude/hooks/
-```
-
-Then register it as a `PreToolUse` hook on `Bash` in `~/.claude/settings.json`:
+Register it as a `PreToolUse` hook on `Bash` in `~/.claude/settings.json`:
 
 ```json
 {
@@ -462,9 +477,12 @@ SKILL=~/.claude/skills/feature-chunker
 bash $SKILL/bin/chunk-check.sh readiness $CHUNK
 
 # 2. Plan. Track V writes the red oracle in a subagent that has never seen a
-#    plan; Track P writes the cold-executable plan. You then fill in
-#    predictions.md BEFORE reading plan.md, and record a verdict.
-#    On approve:                                        →  stage: approved
+#    plan; Track P writes the cold-executable plan. Fill in predictions.md's
+#    top half BEFORE reading plan.md, and stamp it while the verdict is
+#    still blank — this is what makes "the predictions were blind" checkable:
+bash $SKILL/bin/chunk-check.sh predict $CHUNK
+#    Then read the plan and the red tests, record the verdict, and on
+#    approve:                                           →  stage: approved
 bash $SKILL/bin/chunk-check.sh freeze $CHUNK
 
 # 3. Implement to green. Never touch a file under test_paths. Never commit.
@@ -473,11 +491,15 @@ bash $SKILL/bin/chunk-check.sh freeze $CHUNK
 #    scope, suite green, no unapproved commits.          →  stage: verified
 bash $SKILL/bin/chunk-check.sh verify $CHUNK
 
-# 5. Read the diff with the review packet beside it, then record the verdict.
+# 5. Append the chunk's line to the field log (Write/Edit, never a shell >>),
+#    then verify and record it — this also prints the computed demotion streak:
+bash $SKILL/bin/chunk-check.sh log $CHUNK
+
+# 6. Read the diff with the review packet beside it, then record the verdict.
 #    approved → done  |  changes-requested → back to implement  |  rejected → blocked
 bash $SKILL/bin/chunk-check.sh gate $CHUNK approved
 
-# 6. You commit. The harness never does.
+# 7. You commit. The harness never does.
 ```
 
 Anywhere along the way:
@@ -531,20 +553,19 @@ references/
   plan.md                       # two tracks, context classification, the plan gate
   implement.md                  # execute to green; the rules and the failure modes
   audit-implementation.md       # verify, review packet, the retro
+  feature-close.md              # once per feature: independent whole-diff review
   setup.md                      # install, the hook, the field log, full CLI surface
 bin/
   chunk-check.sh                # the deterministic backstop — every guarantee
   test-chunk-check.sh           # the backstop's own oracle
 templates/
   feature.md  spec.md  plan.md  predictions.md  retro.md  state.json  field-log.md
-LICENSE                         # MIT
-hooks/                          # NOT part of the skill — user-level config
-  chunk-no-commit.py            # the PreToolUse commit preventer
-  test_chunk_no_commit.py       # its oracle, including the wrapper-bypass cases
-feature-chunker.zip             # the skill, packaged for install
+CHANGELOG.md                    # every earned change, cited to its incident
+CANDIDATES.md                   # maintainer-sized proposals, with the
+                                #   second-occurrence escalation rule
 ```
 
-The part that installs into `~/.claude/skills/` is fifteen files, ~140 KB. None
+The part that installs into `~/.claude/skills/` is sixteen files, ~150 KB. None
 of it is a runtime cost until it fires: Claude Code loads only `SKILL.md`'s
 frontmatter — this README, the reference bodies, and the templates are read on
 demand or not at all.
@@ -604,9 +625,3 @@ to these reference files in the session that earned them — incident, case, fix
 The skill gets better the same way it asks code to.
 
 
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).

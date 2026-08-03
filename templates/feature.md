@@ -40,10 +40,20 @@ it says these specs are the origin, not a derivation.
 What an agent should load before planning a chunk here, and which track may
 see it. **Pointers only — never paste a pack's contents into a spec.**
 
-| Pack | Kind | Loaded by |
-|---|---|---|
-| `<skill-name or path>` | contract | Track V + Track P |
-| `<skill-name or path>` | implementation | Track P only |
+| Pack | Kind | Loaded by | Covers |
+|---|---|---|---|
+| `<skill-name or path>` | contract | Track V + Track P | `<path globs>` |
+| `<skill-name or path>` | implementation | Track P only | `<path globs>` |
+
+**Covers is the pack's refresh trigger.** The globs name the paths the pack
+describes. A chunk whose diff touches them owes the pack an update — or an
+explicit "still holds" in its review packet — before its review gate closes
+(`references/audit-implementation.md` § Half 2). Standing knowledge that the
+feature itself is changing goes stale mid-feature, and stale context is
+trusted, so it is worse than missing. Leave `Covers` empty for a pack about
+things this repo's diffs cannot touch (ecosystem notes, external interfaces);
+an empty cell says "nothing here can invalidate this", and like the empty
+table, it is a real answer.
 
 **Kind is the whole point of this table.** Track V writes the oracle blind, so
 it may see *contract* context (domain vocabulary, external interfaces,
@@ -67,3 +77,12 @@ Statuses: specified · ready · approved · verified · done · blocked ·
 bypassed — the same set `state.json` can hold, deliberately. Keep this table
 current: it is the feature's state of record, and chunk state.json files are
 the per-chunk detail.
+
+**Keep rows on a diet: status plus a pointer, not a history.** A row that
+accretes each session's narrative becomes a 300-word document every pickup
+pays to re-read, and nothing checks it against `state.json` — the script
+parses no markdown by design, so a stale row just sits there looking
+authoritative (one sat at `ready` for two days after the chunk moved on).
+The chunk's own `retro.md` and `plan.md` handoff note are where history
+lives; the Notes cell carries at most the open decision blocking the chunk
+and a pointer.
