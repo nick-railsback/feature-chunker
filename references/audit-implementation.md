@@ -159,7 +159,11 @@ act on:
   ever retire or repair a pack; "the pack was loaded" on its own is attendance,
   not evidence.
 
-Then one line of free text: where the protocol chafed.
+Then `chafe:` — free text, one *line* in the parsing sense (no literal
+newline; the log reads one line per chunk) but not one sentence: the condensed
+narrative of where the protocol chafed, at whatever length the next session
+needs. When it outgrows a paragraph, the overflow belongs in `retro.md` with
+the chafe line summarizing and pointing to it.
 
 **The chunk that changes what a pack describes owes the pack an update.**
 Check the diff against each pack's `Covers` globs in `feature.md`'s Context

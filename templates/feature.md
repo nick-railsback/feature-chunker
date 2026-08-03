@@ -77,3 +77,12 @@ Statuses: specified · ready · approved · verified · done · blocked ·
 bypassed — the same set `state.json` can hold, deliberately. Keep this table
 current: it is the feature's state of record, and chunk state.json files are
 the per-chunk detail.
+
+**Keep rows on a diet: status plus a pointer, not a history.** A row that
+accretes each session's narrative becomes a 300-word document every pickup
+pays to re-read, and nothing checks it against `state.json` — the script
+parses no markdown by design, so a stale row just sits there looking
+authoritative (one sat at `ready` for two days after the chunk moved on).
+The chunk's own `retro.md` and `plan.md` handoff note are where history
+lives; the Notes cell carries at most the open decision blocking the chunk
+and a pointer.

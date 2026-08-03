@@ -34,6 +34,23 @@ integrity hole. The changes it earned:
   oracles and a same-thread human cannot have uncorrelated blind spots with
   the implementation, and per-chunk scope discipline means no stage asserts
   the seams between chunks.
+- **The demotion streak is computed, not hand-maintained.** `chunk-check.sh
+  log` now derives the streak from the entries and prints it with every
+  recorded line; the field-log header records only demotion events. The
+  hand-maintained count went stale within days — 18 clean gated chunks under
+  a header still reading "streak 0" — an instruction-to-remember at the heart
+  of the one mechanism that adapts ceremony downward from data. Mutation-
+  tested (case 67).
+- **CANDIDATES.md**: maintainer-sized proposals get a queue in the versioned
+  repo, seeded from the review's inventory, each entry citing field-log
+  evidence by date and repo. The escalation rule the skill already followed
+  implicitly is codified: second incident in a class → mechanism, in that
+  session.
+- **Two contracts stated honestly instead of aspirationally**: `chafe:` is
+  one *record* (a parsing contract), not one sentence — overflow belongs in
+  `retro.md` with a pointer; and `feature.md` queue rows are status plus a
+  pointer, never a history (the script checks no markdown, so a fat row is
+  unverified prose that reads as authority).
 - **`predict` op** (schema 9 → 10): the blind half of predict-then-compare
   becomes a mechanism. `predict` stamps the filled top half of
   `predictions.md` into `state.json` while the verdict is still blank —

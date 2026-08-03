@@ -380,6 +380,32 @@ expected_field_log_gate() {
   esac
 }
 
+# The demotion streak, computed from the entries rather than hand-maintained
+# in the log's header. The header's manual count went stale within days of
+# the rule landing — 18 clean gated chunks accumulated while it still read
+# "streak 0" — which put an instruction-to-remember at the heart of the one
+# mechanism that adapts ceremony downward from data. The log stays the data;
+# this is the arithmetic. gate:none never counts (bypassed chunks are
+# evidence about proportionality, not about the gate); adjust and reject
+# reset the run; approve and auto-pass extend it.
+field_log_streak() { # field_log_streak <log-path>
+  awk -F'|' '
+    $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ \t]*$/ && NF >= 4 {
+      gate = ""
+      for (i = 4; i <= NF; i++) {
+        if ($i ~ /^[ \t]*chafe:/) break
+        if ($i ~ /^[ \t]*gate:/) {
+          gate = $i; sub(/^[ \t]*gate:/, "", gate); sub(/[ \t]+$/, "", gate)
+          break
+        }
+      }
+      if (gate == "adjust" || gate == "reject") streak = 0
+      else if (gate == "approve" || gate == "auto-pass") streak++
+    }
+    END { print streak + 0 }
+  ' "$1"
+}
+
 scan_field_log() { # scan_field_log <log-path>
   FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
   local scanned
@@ -1178,6 +1204,7 @@ log)
           pass "field-log entry verified and recorded"
           info "  $FL_LINE"
           info "the review gate will re-read this file rather than trust the record"
+          info "demotion streak: $(field_log_streak "$log_path") consecutive clean gated chunk(s) — adjust/reject reset it, gate:none excluded; the rule and its n live in the log's header"
         fi
       fi
     fi

@@ -39,10 +39,17 @@ zero `reject`** — twenty consecutive chunks in which the gate never changed
 an outcome. `standard` chunks always gate; `trivial` chunks never reach the
 gate. Entries with `gate:none` (bypassed) are logged but do **not** count
 toward the streak in either direction — they were never gated, so they are
-evidence about proportionality, not about the gate. When demotion fires, write
-the date **and the streak count** into this header. Revoke on the first
-post-demotion incident a gated plan would have caught, and reset the streak to
-zero.
+evidence about proportionality, not about the gate.
+
+**The current streak is computed, never hand-maintained.** `chunk-check.sh
+log` derives it from the entries below and prints it with every recorded
+line. A running count written into this header was tried and went stale
+within days — 18 clean gated chunks accumulated under a header still reading
+"streak 0" — which put an instruction-to-remember at the heart of the one
+mechanism that adapts ceremony downward from data. This header records only
+demotion **events**: when demotion fires, write the date and the streak count
+it fired at. Revoke on the first post-demotion incident a gated plan would
+have caught — the computed streak restarts from the entries either way.
 
 Two things worth not re-deriving later:
 
@@ -68,6 +75,14 @@ Two things worth not re-deriving later:
 
 `gate:none` marks a bypassed chunk: logged for the proportionality question,
 excluded from the demotion streak.
+
+**`chafe:` is one record, not one sentence.** The parser reads one line per
+chunk, so a literal newline breaks the entry — but the field's length is
+deliberately unbounded, because in practice it carries the retro's condensed
+narrative and that is the most valuable free text in the log. When it
+outgrows a paragraph, the overflow belongs in the chunk's `retro.md` and the
+chafe line should summarize and point to it. "One line" is a parsing
+contract, not a word budget.
 
 ## What `context:` is for, and what it cannot support
 

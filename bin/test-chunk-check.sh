@@ -1452,6 +1452,33 @@ expect "66 freeze names the draft-ahead tier, not blind-by-construction" 0 "with
 quiet_check "$d" readiness --rebaseline
 assert_eq "66 rebaseline clears the predict stamp with the rest of the gate" "$(state_get "$d" '.predict')" "null"
 
+# 67 — `log` computes the demotion streak from the entries themselves. The
+#      live log's hand-maintained header count went stale within days — a
+#      manual counter feeding the one mechanism that adapts ceremony downward
+#      from data. The log stays the data; the script does the arithmetic.
+#      gate:none is excluded but does not break the run; adjust and reject
+#      both reset it; approve and auto-pass extend it.
+d="$(new_fixture case67)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" verify
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a)" \
+  "$(log_line "$d" adjust 00-b)" \
+  "$(log_line "$d" approve 00-c)" \
+  "$(log_line "$d" none 00-d)" \
+  "$(log_line "$d" auto-pass 00-e)" \
+  "$(log_line "$d" approve 01-x)"
+out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"; rc=$?
+assert_eq "67 log passes with the entry present" "$rc" "0"
+assert_contains "67 streak computed: adjust resets it, none is excluded" "$out" "demotion streak: 3"
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a)" \
+  "$(log_line "$d" reject 00-b)" \
+  "$(log_line "$d" approve 01-x)"
+out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"
+assert_contains "67 reject resets the streak too" "$out" "demotion streak: 1"
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
