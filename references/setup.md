@@ -137,10 +137,10 @@ There is no `unblock`: `readiness` already clears `blockers` and re-pins, and a
 second route to one state is a second thing to keep true.
 
 **`freeze_suite` — why `freeze` runs the whole suite when it's expected to be
-red.** `freeze` pins `oracle_cmd`, which is a narrow slice of `suite_cmd`
-(feature.md's own "chunks are strictly serialized" constraint names this: from
-freeze until implementation is green, the *whole* suite is red, because the
-chunk's own new, unimplemented oracle sits inside it). A red `suite_cmd` at
+red.** `freeze` pins `oracle_cmd`, which is a narrow slice of `suite_cmd` —
+and whenever the chunk's new tests are part of `suite_cmd`, which is the
+common case, the *whole* suite is red from freeze until implementation goes
+green, because the unimplemented oracle sits inside it. A red `suite_cmd` at
 freeze time is therefore not news — but *why* it's red is: a lint, doctrine, or
 schema break baked into the files just hash-pinned looks identical, exit-code-
 wise, to the expected new-oracle red, and stayed invisible until implement's

@@ -969,9 +969,9 @@ freeze)
   if [ "$FAIL" -eq 0 ]; then
     # Non-gating suite probe, run once before the stamp. `suite_cmd` is
     # *expected* to be red here — the file(s) just hash-pinned above are this
-    # chunk's own oracle, unimplemented by construction (feature.md's own
-    # "chunks are strictly serialized" constraint names exactly this: from
-    # freeze until implementation is green, the suite is red). So a red exit
+    # chunk's own oracle, unimplemented by construction, and the chunk's own
+    # tests usually sit inside `suite_cmd`, so from freeze until
+    # implementation goes green the suite carries their red. So a red exit
     # alone proves nothing new. What this catches is a break that has nothing
     # to do with that expected redness: a lint/doctrine/schema failure baked
     # into the newly-pinned test file itself, which today stays invisible

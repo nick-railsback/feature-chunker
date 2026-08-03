@@ -60,8 +60,8 @@ improvise.
    with `git add` (never commit) as you create them if the plan's criteria
    depend on git-tracked state; don't wait until the run before `verify` to
    discover this. Added 2026-07-30 after skill-engine chunk 11 lost an
-   iteration to this on a from-scratch reference split (discovered via
-   `references/` existence + tracked-file checks in `doctrine.sh`).
+   iteration to this on a from-scratch file split whose oracle asserted
+   tracked-ness through the repo's own doctrine script.
 7. **A regex-based in-body check can fail on a line wrap, not just on
    content.** `grep -qiE` (no `-z`) matches within a single line only. If a
    check greps for a multi-word phrase (e.g. "no write ... no shell") and

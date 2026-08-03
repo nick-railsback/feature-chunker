@@ -51,6 +51,15 @@ integrity hole. The changes it earned:
   `retro.md` with a pointer; and `feature.md` queue rows are status plus a
   pointer, never a history (the script checks no markdown, so a fat row is
   unverified prose that reads as authority).
+- **Portability pass over the feature's additions.** The evidence base is one
+  repo and one operator, so rationale was checked against "would this
+  sentence be true in a pytest repo?": the freeze_suite argument no longer
+  borrows one feature's serialization constraint as if it were universal
+  (the general fact: the chunk's own tests usually sit inside `suite_cmd`),
+  and incident citations stay as worked examples rather than load-bearing
+  premises. The operator-local field-log header gained the streak-pooling
+  caveat: clean gates pooled across repos of different difficulty are not
+  draws from one distribution.
 - **`predict` op** (schema 9 → 10): the blind half of predict-then-compare
   becomes a mechanism. `predict` stamps the filled top half of
   `predictions.md` into `state.json` while the verdict is still blank —
