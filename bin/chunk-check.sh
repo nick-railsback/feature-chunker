@@ -15,7 +15,7 @@ warn() { printf 'WARN  %s\n' "$1"; }
 info() { printf 'INFO  %s\n' "$1"; }
 die()  { printf 'ERROR %s\n' "$1" >&2; exit 2; }
 
-usage() { die "usage: chunk-check.sh <readiness|freeze|verify|log|gate|bypass|block|status> <chunk-dir> [args]
+usage() { die "usage: chunk-check.sh <readiness|predict|freeze|verify|log|gate|bypass|block|status> <chunk-dir> [args]
        flags: --rebaseline (readiness), --refreeze (freeze), --log-path <file> (log),
               --downgrade (bypass)"; }
 
@@ -64,7 +64,7 @@ cd "$REPO_ROOT" || die "cannot cd to repo root"
 [ -f "$STATE" ] || die "missing $CHUNK_REL/state.json (stamp from templates/state.json)"
 jq -e . "$STATE" >/dev/null 2>&1 || die "state.json is not valid JSON"
 
-SCHEMA_MAX=9
+SCHEMA_MAX=10
 sv="$(jq -r '.schema_version // 0' "$STATE")"
 case "$sv" in
   ''|*[!0-9]*) die "schema_version is not an integer — state.json is malformed" ;;
@@ -620,6 +620,42 @@ print_handoff() {
   return 0
 }
 
+# --- the blind-predictions stamp (predict op) --------------------------------
+# predictions.md is two halves: the top is filled BEFORE the plan is read
+# (expected approach/files/risk), the bottom (disagreements, verdict) after.
+# The unfilled-blank check and the verdict-vocabulary check both pass on a
+# file filled in one pass, verdict included — they confirm the blanks are
+# gone, which is not the property the gate needs. The property is ORDER, and
+# `predict` is what observes it: it stamps a hash of the top half into
+# state.json while the verdict is still blank, and `freeze` requires the
+# stamped bytes to be identical when the verdict finally arrives. Found
+# 2026-07-29 (a chunk whose whole predictions file was written in one pass,
+# recording a gate about a plan that did not yet exist); designed the same
+# day, built 2026-08-03.
+#
+# The original design keyed on plan.md's mtime ("the stamp must precede the
+# plan being written"). Deliberately not built that way: under draft-ahead
+# (references/plan.md § Draft-ahead) a drafted plan legitimately predates the
+# arrival that fills the predictions, and mtimes are the least trustworthy
+# fact in a tree that clones and checks out. What is provable without them:
+# the top half existed filled at stamp time (predict refuses blanks), the
+# verdict did not (predict refuses one), and whether plan.md existed on disk
+# is recorded rather than guessed. Absence at stamp time plus presence at
+# freeze proves the plan came after — no clock consulted. Presence at stamp
+# time is the draft-ahead case, where blindness rests on the plan having been
+# withheld; the honesty is on the human, and recording the condition is what
+# makes the claim inspectable instead of assumed.
+predictions_top_half() { # everything above the compare-half markers
+  awk '/^## Disagreements/ || /^## Verdict/ || /^Verdict:/ { exit } { print }' "$1"
+}
+predictions_top_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then predictions_top_half "$1" | sha256sum | awk '{print $1}'
+  else predictions_top_half "$1" | shasum -a 256 | awk '{print $1}'; fi
+}
+pred_line_token() { # pred_line_token <file> <Verdict|Adjusted> — first word after the colon
+  grep -E "^$2:[[:space:]]*" "$1" | head -1 | sed -E "s/^$2:[[:space:]]*//" | awk '{print $1}'
+}
+
 case "$OP" in
 
 readiness)
@@ -693,12 +729,13 @@ readiness)
                | .bypass_base = (.bypass_base // null)
                | .bypass_suite = (.bypass_suite // null)
                | .freeze_suite = (.freeze_suite // null)
+               | .predict = (.predict // null)
                | .chunk = (.chunk // .segment) | del(.segment)
                | .schema_version = $smax
                | if $rebase then
                      .test_hashes = {} | .oracle_red = null | .oracle_green = null
                    | .gates.plan = null | .gates.plan_adjusted = null
-                   | .plan_approved_sha = null
+                   | .plan_approved_sha = null | .predict = null
                    # bypass_note is what tells `verify` this chunk took the
                    # bypass route. A rebaseline puts it back into the
                    # lifecycle, so leaving it set would refuse the very op the
@@ -712,6 +749,54 @@ readiness)
       fi
     else
       fail "not ready — fix blockers above before planning"
+    fi
+  fi
+  ;;
+
+predict)
+  [ -z "$EXTRA1" ] || die "predict takes no positional arguments"
+  stage="$(jget '.stage')"
+  case "$stage" in
+    ready) pass "predict legal from stage 'ready'" ;;
+    *) fail "predict is legal from stage 'ready' only — the top half is stamped after readiness, before the plan is read; found '$stage'" ;;
+  esac
+  pred="$CHUNK_DIR/predictions.md"
+  if [ ! -f "$pred" ]; then
+    fail "predictions.md missing — stamp it from templates/predictions.md and fill the top half first"
+  else
+    if predictions_top_half "$pred" | grep -q '___'; then
+      fail "the top half still has unfilled blanks — predict stamps a prediction, and an untouched template is not one"
+    fi
+    v_tok="$(pred_line_token "$pred" Verdict)"
+    a_tok="$(pred_line_token "$pred" Adjusted)"
+    case "$v_tok" in
+      ""|___) ;;
+      *) fail "predictions.md already carries a verdict ('$v_tok') — predict stamps the blind top"
+         fail "  half BEFORE the plan is read. A file filled in one pass records a gate's outcome"
+         fail "  about a plan that did not exist yet, which is the incident this op closes." ;;
+    esac
+    case "$a_tok" in
+      ""|___) ;;
+      *) fail "predictions.md already answers Adjusted ('$a_tok') — that line belongs to the verdict, after the plan is read" ;;
+    esac
+  fi
+  if [ "$FAIL" -eq 0 ]; then
+    prior="$(jget '.predict.at // empty')"
+    [ -n "$prior" ] && warn "replacing predict stamp from $prior — legal while the plan is unread; freeze checks the final stamp"
+    plan_present=false
+    if [ -f "$CHUNK_DIR/plan.md" ]; then
+      plan_present=true
+      warn "plan.md already on disk — recording plan_present=true (draft-ahead). Blindness now"
+      warn "  rests on the plan having been withheld until the blanks were filled; recording"
+      warn "  the condition is what keeps that claim inspectable instead of assumed."
+    fi
+    if jset '.predict = {at: $now, top_hash: $h, plan_present: $pp}' \
+        --arg h "$(predictions_top_hash "$pred")" --argjson pp "$plan_present"; then
+      if [ "$plan_present" = "true" ]; then
+        pass "top half stamped — plan_present=true recorded; freeze will report this tier"
+      else
+        pass "top half stamped — no plan.md on disk: blind by construction"
+      fi
     fi
   fi
   ;;
@@ -781,6 +866,34 @@ freeze)
       n|no)  GATE_ADJUSTED=false ;;
       *)     fail "predictions.md has no 'Adjusted: y|n' line — the demotion rule counts adjustments, not just rejections" ;;
     esac
+
+    # -- the predict stamp: 'blind' as a checkable property (see the predict
+    #    op's header comment for the full argument). The stamp is required on
+    #    `standard` chunks — non-negotiable #6 claims both gates are
+    #    instrumented, and before this check the blind half of predict-then-
+    #    compare was instrumented in vocabulary only. Below `standard` the
+    #    stamp is optional (the 2026-07-31 softening), but a stamp that
+    #    exists is held to at every size: `small` relaxes whether you must
+    #    predict, never whether a recorded prediction is honest.
+    stamp_at="$(jget '.predict.at // empty')"
+    if [ -n "$stamp_at" ]; then
+      if [ "$(predictions_top_hash "$pred")" = "$(jget '.predict.top_hash // empty')" ]; then
+        if [ "$(jget '.predict.plan_present')" = "true" ]; then
+          pass "predict stamp verified ($stamp_at) — plan.md was on disk at stamp time: blindness rests on it having been withheld (draft-ahead)"
+        else
+          pass "predict stamp verified ($stamp_at) — stamped before plan.md existed: blind by construction"
+        fi
+      else
+        fail "predictions.md's top half changed after the predict stamp ($stamp_at) — the stamp no"
+        fail "  longer proves the predictions predate the plan. If the edit was honest (made before"
+        fail "  the plan was read), re-run: chunk-check.sh predict $CHUNK_REL"
+      fi
+    elif [ "$(jget '.size_class // empty')" = "standard" ]; then
+      fail "no predict stamp — on a 'standard' chunk the blind half of the gate is instrumented:"
+      fail "  fill the top half, then run chunk-check.sh predict $CHUNK_REL before reading the plan"
+    else
+      info "no predict stamp (optional below 'standard' — softened 2026-07-31)"
+    fi
   fi
 
   n_scope="$(jq -r '.scope_paths | length' "$STATE")"
@@ -1250,6 +1363,7 @@ status)
          "oracle_cmd:     \(.oracle_cmd)",
          "oracle red:     exit \(.oracle_red.exit_code // "-") · \((.oracle_red.node_ids // []) | length) node-id(s) · \(.oracle_red.id_source // "-")",
          "oracle green:   \(.oracle_green.evidence_tier // "-")",
+         "predict:        \(if .predict then "stamped \(.predict.at) · plan_present=\(.predict.plan_present)" else "-" end)",
          "freeze suite:   \(if .freeze_suite then "exit \(.freeze_suite.exit) · \(.freeze_suite.cmd)" else "-" end)",
          "baseline_sha:   \(.baseline_sha)",
          "baseline_prev:  \(.baseline_prev_sha)",

@@ -225,7 +225,14 @@ decisions belong to the human. On a spec change, re-derive both tracks.
    blanks in `predictions.md`: expected approach, expected files, biggest risk.
    Written predictions are the anti-anchoring device — if you read the plan
    first, the gate has nothing to teach. The honesty is on the human; the file
-   just makes honesty cheap. `freeze` refuses to run while any `___` remains on
+   just makes honesty cheap — and `chunk-check.sh predict <chunk-dir>` makes
+   it checkable: run it as soon as the blanks are filled, while the verdict is
+   still blank. It stamps the top half's hash into `state.json` (refusing a
+   file that already carries a verdict — the one-pass fill that motivated it,
+   where a gate's outcome was recorded about a plan that did not yet exist)
+   and records whether a plan draft was on disk. `freeze` requires the stamp
+   on `standard` chunks and refuses a stamped top half that later changed, at
+   every size. `freeze` also refuses to run while any `___` remains on
    a `standard` chunk, so an untouched template cannot stand in for a gate that
    happened. For `small` chunks the blanks are optional (softened 2026-07-31 by
    operator decision, after field-log entries 07–12 showed them degrading into

@@ -7,6 +7,35 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-03 — remediating the first skill review
+
+An independent review of the skill after the first full feature (2026-08-02)
+found that all ten defects an independent whole-diff audit caught had shipped
+through gate-approved chunks, and traced them to classes the lifecycle never
+briefed against, lessons routed to the wrong stage, and one documented
+integrity hole. The changes it earned:
+
+- **Oracle-failure lessons routed to the stage that applies them.** plan.md's
+  Track V gains a standing brief — the accumulated failure classes keyed on
+  the oracle's *shape* (greps prose / suite lints tests / reads git state /
+  deliverable is itself a check), not a flat checklist. The pre-freeze
+  git-state calibration rule moved there from audit-implementation.md, which
+  is read after the moment that can act on it. implement.md rule 8 no longer
+  routes an in-flight oracle-bug fix through `block` (a detour `blocked`
+  forces by cutting off `freeze --refreeze`); plan.md's Track P prices the
+  oracle-run cadence to the chunk's shape.
+- **`predict` op** (schema 9 → 10): the blind half of predict-then-compare
+  becomes a mechanism. `predict` stamps the filled top half of
+  `predictions.md` into `state.json` while the verdict is still blank —
+  refusing the one-pass fill that motivated it (2026-07-29, a gate outcome
+  recorded about a plan that did not yet exist) — and records whether a plan
+  draft was on disk. `freeze` requires the stamp on `standard` chunks and
+  refuses a stamped top half that later changed, at every size. Deliberately
+  keyed on recorded absence/presence rather than the originally designed
+  mtime comparison: draft-ahead makes a pre-existing plan legitimate, and
+  recording the condition honestly beats gating on a clock. Six mutation
+  trials pinned (suite 197 → 217 assertions).
+
 ## 2026-08-02 — catch-up sync after the first full feature
 
 The first end-to-end feature run (skill-engine, 24 chunks,

@@ -75,8 +75,10 @@ fourteen field-log entries.
 6. **Two human gates, both instrumented.** Predict-then-compare on the plan
    (blind predictions for `standard` chunks; `small` chunks gate on
    read-and-verdict alone — softened 2026-07-31); review-before-commit on the
-   diff. Gates earn their keep via the field log or get demoted — by data, not
-   by mood.
+   diff. The blind half is instrumented in mechanism, not just vocabulary:
+   `chunk-check.sh predict` stamps the filled predictions before the plan is
+   read, and `freeze` requires the stamp on `standard` chunks. Gates earn
+   their keep via the field log or get demoted — by data, not by mood.
 7. **Ceremony must be proportionate.** Trivial work — no design decision,
    small blast radius, trivially reversible — bypasses the lifecycle: do it,
    human reviews the diff, record `bypassed`. The file count is a *proxy* for
@@ -166,10 +168,16 @@ prose asking anyone to be careful.
   `state.json`, the declared `artifacts` mode against git, `branch` against
   HEAD, `baseline_sha` against history), gate the declared fields, run the
   baseline suite → pin `baseline_sha` + `branch`, stage `ready`
+- `predict` — stamp the filled top half of `predictions.md` into `state.json`
+  while the verdict is still blank (refusing unfilled blanks and a
+  pre-recorded verdict), noting whether a plan draft was on disk. This makes
+  "the predictions were blind" a checkable claim rather than a remembered
+  order of operations
 - `freeze` — the plan gate happened and approved, all four spec blocks agree
   with state, `oracle_cmd` runs **red** with no test green at birth and no
   collection error → hash-pin every tracked file under `test_paths`, stage
-  `approved`
+  `approved`. Requires the predict stamp on `standard` chunks and refuses a
+  top half that moved since it was stamped, at every size
 - `verify` — oracle unchanged, the frozen oracle re-run and green with the same
   node-ids, diff ⊆ declared scope, suite green, no commits the review gate has
   not approved → stage `verified`. Refuses on any bypassed chunk: no freeze

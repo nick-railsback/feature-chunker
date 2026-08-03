@@ -224,6 +224,32 @@ write_predictions() { # write_predictions <repo_dir> <verdict> <adjusted>
     > "$1/$CHUNK/predictions.md"
 }
 
+# The predict-op fixtures need the two halves of predictions.md at different
+# moments: top half filled while the verdict is still blank (that is what
+# `predict` stamps), verdict filled later WITHOUT the top half changing a byte
+# (that is what freeze verifies). Both emit through one top-half printer so
+# the two files cannot drift apart and quietly break the hash comparison the
+# cases exist to exercise.
+predictions_top_lines() {
+  printf '%s\n' \
+    '# plan gate (predict-then-compare)' \
+    '' \
+    '- Expected approach: create the feature file' \
+    '- Expected files touched: src/feature.txt' \
+    '- Biggest risk: none' \
+    ''
+}
+write_blind_predictions() { # top half filled, verdict not yet recorded
+  { predictions_top_lines
+    printf '%s\n' '## Verdict' '' 'Verdict: ___' 'Adjusted: ___'
+  } > "$1/$CHUNK/predictions.md"
+}
+fill_verdict() { # fill_verdict <repo_dir> <verdict> <adjusted> — top half stays byte-identical
+  { predictions_top_lines
+    printf '%s\n' '## Verdict' '' "Verdict: $2" "Adjusted: $3"
+  } > "$1/$CHUNK/predictions.md"
+}
+
 new_fixture() { # new_fixture <name> [oracle_cmd] [tracked|untracked] [size_class]
   local name="$1"
   local oracle="${2:-bash tests/chunk/oracle.sh}"
@@ -600,7 +626,7 @@ assert_eq "25 older schema: version migrated to the version the template ships" 
 # the suite stayed green. The materialisation is the whole point of this case:
 # an un-materialised key leaves the older-schema warning firing forever, which
 # is the nagging this migration exists to stop.
-for k in artifacts field_log size_class_corrected bypass_base bypass_shipped bypass_suite; do
+for k in artifacts field_log size_class_corrected bypass_base bypass_shipped bypass_suite predict; do
   assert_eq "25 older schema: $k key materialised" "$(state_get "$d" "has(\"$k\")")" "true"
   assert_eq "25 older schema: $k materialised as null" "$(state_get "$d" ".$k")" "null"
 done
@@ -768,14 +794,20 @@ d="$(new_fixture case38 "bash tests/chunk/oracle.sh" tracked standard)"
 cp "$TEMPLATES/predictions.md" "$d/$CHUNK/predictions.md"
 expect "38 untouched template predictions.md: freeze refused" 1 "unfilled blanks" -- chunk_check "$d" freeze
 
-# Fill it the way a human would: replace the blanks, leave the prose alone.
+# Fill it the way a human would — in two passes, because the two passes ARE the
+# gate: top half first, stamped by `predict` while the verdict is still blank;
+# verdict only after the plan is read. This also runs `predict` against the
+# shipped template's real structure (the Disagreements section sits between the
+# halves, and the top-half hash must stop before it).
 sed -e 's/^- Expected approach: .*/- Expected approach: add the thing/' \
     -e 's/^- Expected files touched: .*/- Expected files touched: src\/base.txt/' \
     -e 's/^- Biggest risk: .*/- Biggest risk: none/' \
-    -e 's/^Verdict: .*/Verdict: approve/' \
-    -e 's/^Adjusted: .*/Adjusted: n/' \
     "$TEMPLATES/predictions.md" > "$d/$CHUNK/predictions.md"
 quiet_check "$d" readiness
+expect "38 top half filled on the shipped template: predict stamps it" 0 "top half stamped" -- chunk_check "$d" predict
+sed -e 's/^Verdict: .*/Verdict: approve/' \
+    -e 's/^Adjusted: .*/Adjusted: n/' \
+    "$d/$CHUNK/predictions.md" > "$FIXROOT/pred.tmp" && mv "$FIXROOT/pred.tmp" "$d/$CHUNK/predictions.md"
 expect_absent "38 filled template predictions.md: no phantom blanks" "unfilled blanks" -- chunk_check "$d" freeze
 expect        "38 filled template predictions.md: gate recorded"  0 "plan gate verdict: approve" -- chunk_check "$d" freeze --refreeze
 
@@ -1332,6 +1364,93 @@ assert_contains "61 freeze prints the red suite as a WARN, not a FAIL" \
   "$out" "WARN  suite RED (exit 1) — recorded as freeze_suite, not gated"
 assert_eq "61 freeze_suite.exit is recorded" "$(state_get "$d" '.freeze_suite.exit')" "1"
 assert_eq "61 stage still reaches approved" "$(state_get "$d" .stage)" "approved"
+
+# --- 62-66: the predict op — 'blind' as a checkable property ----------------
+# THE motivating incident (skill-engine chunk 04, 2026-07-29): predictions.md
+# was filled in one pass, verdict included, so the gate's outcome was recorded
+# about a plan that did not yet exist. The unfilled-blank check and the
+# verdict-vocabulary check both passed — they confirm the blanks are gone,
+# which is not the property the gate needs. The property is ORDER, and
+# `predict` is the mechanism that observes it: stamp the top half while the
+# verdict is still blank; freeze verifies the stamped bytes never moved.
+
+# 62 — the op itself: stage guard, the one-pass refusal, the blank refusal,
+#      the stamp, and the re-stamp path
+d="$(new_fixture case62 'bash tests/chunk/oracle.sh' tracked standard)"
+expect "62 predict before readiness: refused" 1 "legal from stage 'ready'" -- chunk_check "$d" predict
+quiet_check "$d" readiness
+expect "62 one-pass predictions (verdict already filled): predict refused" 1 "already carries a verdict" -- chunk_check "$d" predict
+printf '%s\n' '# gate' '' '- Expected approach: ___' '' 'Verdict: ___' 'Adjusted: ___' > "$d/$CHUNK/predictions.md"
+expect "62 unfilled top half: predict refused" 1 "unfilled blanks" -- chunk_check "$d" predict
+write_blind_predictions "$d"
+expect "62 blind top half, no plan on disk: predict stamps it" 0 "blind by construction" -- chunk_check "$d" predict
+assert_eq "62 stamp recorded with plan_present=false" "$(state_get "$d" '.predict.plan_present')" "false"
+expect "62 re-predict while the plan is unread: replaced with a warning" 0 "replacing predict stamp" -- chunk_check "$d" predict
+out="$(chunk_check "$d" status 2>&1)"
+assert_contains "62 status prints the stamp" "$out" "predict:"
+fill_verdict "$d" approve n
+expect "62 stamped standard chunk: freeze passes, naming the blind tier" 0 "blind by construction" -- chunk_check "$d" freeze
+
+# 63 — the stamp binds content: a top half rewritten after the stamp (i.e.
+#      after the plan may have been read) is exactly what the stamp exists to
+#      catch, so freeze refuses the hash mismatch
+d="$(new_fixture case63 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+quiet_check "$d" predict
+printf '%s\n' \
+  '# plan gate (predict-then-compare)' '' \
+  '- Expected approach: entirely rewritten after reading the plan' \
+  '- Expected files touched: src/feature.txt' \
+  '- Biggest risk: none' '' \
+  '## Verdict' '' 'Verdict: approve' 'Adjusted: n' \
+  > "$d/$CHUNK/predictions.md"
+expect "63 top half rewritten after the stamp: freeze refused" 1 "changed after the predict stamp" -- chunk_check "$d" freeze
+
+# 64 — the closed hole, demonstrated on its original shape: fixture predictions
+#      are fully filled in one pass, verdict included, and no predict ever ran.
+#      On a standard chunk that used to sail through; now it cannot.
+d="$(new_fixture case64 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+expect "64 standard chunk, one-pass predictions, no stamp: freeze refused" 1 "no predict stamp" -- chunk_check "$d" freeze
+# The softening survives: below `standard` the stamp is optional, and the
+# refusal above must not leak down a size class.
+d="$(new_fixture case64b)"
+quiet_check "$d" readiness
+expect "64b small chunk, no stamp: freeze passes, stamp optional" 0 "optional below 'standard'" -- chunk_check "$d" freeze
+
+# 65 — a stamp that exists is held to at every size: `small` relaxes whether
+#      you must predict, never whether a recorded prediction is honest
+d="$(new_fixture case65)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+quiet_check "$d" predict
+printf '%s\n' \
+  '# plan gate (predict-then-compare)' '' \
+  '- Expected approach: entirely rewritten after reading the plan' \
+  '- Expected files touched: src/feature.txt' \
+  '- Biggest risk: none' '' \
+  '## Verdict' '' 'Verdict: approve' 'Adjusted: n' \
+  > "$d/$CHUNK/predictions.md"
+expect "65 small chunk, stamped then edited: freeze refused" 1 "changed after the predict stamp" -- chunk_check "$d" freeze
+
+# 66 — draft-ahead: a plan.md already on disk at stamp time is recorded and
+#      reported, never refused — the design predates draft-ahead, and mtimes
+#      prove nothing a checkout can't fake. Absence-at-stamp + presence-at-
+#      freeze is the provable tier; presence-at-stamp is the honest record of
+#      the weaker one.
+d="$(new_fixture case66 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+printf 'draft plan\n' > "$d/$CHUNK/plan.md"
+out="$(chunk_check "$d" predict 2>&1)"; rc=$?
+assert_eq "66 predict with a drafted plan on disk: still legal" "$rc" "0"
+assert_contains "66 the draft's presence is recorded, not ignored" "$out" "plan.md already on disk"
+assert_eq "66 plan_present recorded true" "$(state_get "$d" '.predict.plan_present')" "true"
+fill_verdict "$d" approve n
+expect "66 freeze names the draft-ahead tier, not blind-by-construction" 0 "withheld" -- chunk_check "$d" freeze
+quiet_check "$d" readiness --rebaseline
+assert_eq "66 rebaseline clears the predict stamp with the rest of the gate" "$(state_get "$d" '.predict')" "null"
 
 # --- summary ---------------------------------------------------------------
 
