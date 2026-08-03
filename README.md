@@ -83,7 +83,7 @@ flowchart TD
     G1 -->|"reject"| BLK
     G1 -->|"adjust"| TP
     G1 -->|"approve"| K2{"chunk-check.sh freeze"}
-    K2 -->|"oracle exits 0 · a test was green at birth<br/>a collection ERROR · spec / state mismatch"| BLK
+    K2 -->|"oracle exits 0 · a test was green at birth<br/>a collection ERROR · spec / state mismatch<br/>predict stamp missing (standard) or changed"| BLK
     K2 -->|"oracle demonstrably RED<br/>every tracked test file hash-pinned"| APR(["approved"])
 
     APR --> IMP["implement<br/>execute the plan to green<br/>never touch the oracle · never commit"]
@@ -98,6 +98,7 @@ flowchart TD
     G2 -->|"approved"| DONE(["done"])
     DONE --> HC["the human commits<br/>the harness never does"]
     DONE --> RT["retro.md → one binary line<br/>appended to the field log"]
+    DONE -.->|"after the LAST chunk —<br/>once per feature, not per chunk"| FC["feature-close<br/>independent whole-diff review by a reviewer<br/>that did not write the chunks<br/>recorded as a repo artifact"]
 
     BLK -.->|"readiness --rebaseline<br/>clears the freeze, restarts the gate"| RDY
     SP -.->|"size_class = trivial — no design<br/>decision, 1-2 files, reversible"| BYP(["bypassed"])
@@ -107,16 +108,20 @@ flowchart TD
     classDef script fill:#dbeafe,stroke:#1d4ed8,color:#0b1324;
     classDef stage fill:#dcfce7,stroke:#15803d,color:#052e16;
     classDef stop fill:#fee2e2,stroke:#b91c1c,color:#450a0a;
+    classDef feature fill:#f3e8ff,stroke:#7e22ce,color:#2e1065;
     class G1,G2 gate
     class K1,K2,K3 script
     class RDY,APR,VER,DONE,BYP stage
     class BLK stop
+    class FC feature
 ```
 
 **Reading the diagram:** blue diamonds are executed code — the only things that
 move a stage. Amber is a human gate. Green is a recorded state in `state.json`.
 Every condition on an edge leaving a blue diamond is a literal pass or refusal in
-`bin/chunk-check.sh`, not a description of intent.
+`bin/chunk-check.sh`, not a description of intent. The purple tail is the one
+once-per-feature stage: `feature-close` runs after the last chunk's `done`, and
+its record is a repo artifact rather than a `state.json` field.
 
 Four operations correspond to the four phases, and an agent loads **only the one
 in play**:
