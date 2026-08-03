@@ -1,11 +1,14 @@
 # Chunk <nn>-<slug> — plan gate (predict-then-compare)
 
 Fill every blank BEFORE opening plan.md. If you read the plan first, this gate
-has nothing to teach. `chunk-check.sh freeze` refuses to run while any unfilled
-blank remains, so an untouched template cannot be mistaken for a gate that
-happened. (This sentence deliberately does not spell the blank marker out: the
-check is a literal search of this file, so an instruction quoting the marker
-would fail the check it describes.)
+has nothing to teach. On a `standard` chunk, `chunk-check.sh freeze` refuses to
+run while any unfilled blank remains, so an untouched template cannot be
+mistaken for a gate that happened. On a `small` chunk the blanks are optional
+(softened 2026-07-31) — skip them honestly or fill them honestly, but the
+Verdict and Adjusted lines below are required at every size. (This sentence
+deliberately does not spell the blank marker out: the check is a literal search
+of this file, so an instruction quoting the marker would fail the check it
+describes.)
 
 - Expected approach: ___
 - Expected files touched: ___

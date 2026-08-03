@@ -537,7 +537,6 @@ bin/
   test-chunk-check.sh           # the backstop's own oracle
 templates/
   feature.md  spec.md  plan.md  predictions.md  retro.md  state.json  field-log.md
-LICENSE                         # MIT
 hooks/                          # NOT part of the skill — user-level config
   chunk-no-commit.py            # the PreToolUse commit preventer
   test_chunk_no_commit.py       # its oracle, including the wrapper-bypass cases
@@ -604,9 +603,3 @@ to these reference files in the session that earned them — incident, case, fix
 The skill gets better the same way it asks code to.
 
 
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).

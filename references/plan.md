@@ -102,7 +102,23 @@ The subagent's brief:
    freeze by name. None of this is caught by eye any more; the calibration is
    executed.
 4. Prose acceptance criteria survive only as comments above the assertions
-   they became.
+   they became — **stated as invariants, never as citations.** These files get
+   `git add`ed at step 2 and hash-pinned at freeze; `spec.md` does not. So a
+   test headed `# Oracle for chunk 04-eval-corpus-split`, labelling assertions
+   `criterion 3:`, or citing "the chunk spec", ships a pointer that resolves on
+   exactly one machine — permanently, in every clone, in vocabulary no reader
+   of the repo can look up. Name the behavior under test, not the document it
+   came from: group assertions by what they hold (`dry-run gate:`,
+   `unsplit compat:`), never by criterion ordinal, and keep the chunk name, the
+   spec filename and the planning tree out of the file entirely. This is the
+   same constraint as the `git add` above and belongs beside it: **being
+   tracked is what makes the vocabulary a defect.**
+
+   Earned 2026-07-29 (skill-engine 04-eval-corpus-split), where a human caught
+   it at the plan gate — the trap is structural, not careless. A workflow that
+   hash-pins tests needs them tracked while the documents they derive from stay
+   untracked, so the natural way to head such a test produces a committed
+   dangling pointer every time.
 
 **What it returns:** the red run's output and a one-paragraph summary of what
 it asserted — **not** the test source. The parent's window carries the minimum
@@ -133,12 +149,20 @@ decisions belong to the human. On a spec change, re-derive both tracks.
 
 ## The plan gate — predict-then-compare
 
-1. Before the human reads `plan.md`, they fill the blanks in
-   `predictions.md`: expected approach, expected files, biggest risk. Written
-   predictions are the anti-anchoring device — if you read the plan first,
-   the gate has nothing to teach. The honesty is on the human; the file just
-   makes honesty cheap. `freeze` refuses to run while any `___` remains, so an
-   untouched template can no longer stand in for a gate that happened.
+1. **`standard` chunks only:** before the human reads `plan.md`, they fill the
+   blanks in `predictions.md`: expected approach, expected files, biggest risk.
+   Written predictions are the anti-anchoring device — if you read the plan
+   first, the gate has nothing to teach. The honesty is on the human; the file
+   just makes honesty cheap. `freeze` refuses to run while any `___` remains on
+   a `standard` chunk, so an untouched template cannot stand in for a gate that
+   happened. For `small` chunks the blanks are optional (softened 2026-07-31 by
+   operator decision, after field-log entries 07–12 showed them degrading into
+   unfilled placeholders and then boilerplate): the human still reads the plan
+   and the red tests and still records the verdict — step 2 applies at every
+   size — but the blind-prediction ceremony is priced to the chunk. This is a
+   scope narrowing of the device, not a retirement of the gate: the demotion
+   rule still governs whether `small` chunks may ever *auto-pass*, and its
+   streak still counts their verdicts.
 2. Human reads the plan and the red tests, notes disagreements with their
    predictions, and records two lines in `predictions.md`:
    `Verdict: approve | adjust | reject` and `Adjusted: y|n`. Disagreement
@@ -155,7 +179,12 @@ decisions belong to the human. On a spec change, re-derive both tracks.
    collection `ERROR`, hash-pins every **tracked** file under `test_paths`,
    records the red node-ids it could parse, pins `plan_approved_sha`, and sets
    stage `approved`. The oracle is now frozen — and, unlike before, provably
-   calibrated.
+   calibrated. It also runs the full `suite_cmd` once, non-gating, recorded as
+   `freeze_suite` — a red exit there is expected (the oracle just pinned is
+   unimplemented by construction) but the *output* can still show a lint or
+   doctrine break baked into the newly-pinned files, which would otherwise stay
+   invisible until implement's first full-suite run (`references/setup.md` §
+   `freeze_suite` has the full argument and the two chunks that earned it).
 4. On **adjust**: apply the adjustment, re-run the red demonstration if tests
    changed, gate again — and set `Adjusted: y`, which survives the re-gate even
    though the final `Verdict:` becomes `approve`. `freeze` refuses an `adjust`
@@ -179,6 +208,53 @@ nobody ever acts on is theater, but you prove that with evidence, not
 impatience. The authoritative statement of the rule, and the current streak,
 live in the header of `~/.claude/feature-chunker-field-log.md`. Two copies of a
 rule is one too many.
+
+## Draft-ahead — planning chunk N while the human reviews chunk N−1
+
+The one-arrival cadence (SKILL.md § Cadence) wants the next chunk's plan
+waiting when the human arrives to review the previous chunk's diff. That is
+legal because drafting and pinning are different acts:
+
+- **May be drafted ahead**, after chunk N−1's implement exit has an honest
+  verify green: the spec-quality gating of chunk N, a Track V test sketch, and
+  a Track P plan draft. Drafts, all of them — cheap to revise when N−1's
+  review comes back `changes-requested`, which is exactly the moment they
+  should be revised.
+- **Must wait for the arrival**, after the human commits N−1: `readiness`
+  (the baseline pins HEAD and the suite must be green *on the tree implement
+  will start from* — pinned earlier, N−1's diff lands inside N's scope check
+  and the freeze is calibrated against a world that no longer exists), the
+  red demonstration, and `freeze`. Draft-ahead moves the thinking, never the
+  evidence.
+
+Two rules keep the draft honest:
+
+- **The drafting window is contaminated.** The session that just implemented
+  N−1 is full of implementation texture, and § Context packs says exactly what
+  that does to a spec: architecture in the window becomes architecture in the
+  criteria, past every isolation boundary downstream. So the parent may draft
+  Track P (the track allowed to know how the system is built) but must not
+  edit `spec.md` — spec gating and the Track V sketch go through fresh-context
+  subagents, same discipline as always, or wait for the arrival.
+- **Questions queue; blockers stop.** A decision the human must make before
+  freeze — an ambiguous criterion, a scope call, a fork in the approach — goes
+  in a `## Questions` section at the top of the draft `plan.md`, answered at
+  the arrival. A genuine blocker (spec contradicts reality, baseline broken)
+  still stops and surfaces; queueing it would let a wrong contract accrete a
+  plan on top. The difference: a question has a default the plan can carry
+  provisionally, a blocker does not.
+
+Artifacts-mode caveat: in `untracked` mode the drafts are invisible to git,
+so chunk N−1's verify cannot see them. In `tracked` mode a sibling chunk's
+directory is inside N−1's changed-paths scan and **fails its scope check** —
+"that is another review's diff" — so draft-ahead in tracked mode starts only
+after N−1's review gate, at the arrival itself.
+
+At the arrival, order the presentation the way the gate needs: for a
+`standard` chunk, spec and the predictions prompt first, the plan withheld
+until the blanks are filled. A draft-ahead plan that gets pasted into the
+arrival summary has anchored the human before the gate ran — the pipeline's
+one way to quietly delete the device it kept.
 
 ## Failure modes
 

@@ -42,6 +42,19 @@ exits through the same review gate). Stage lives in the chunk's
 `state.json`; the deterministic transitions are made by
 `bin/chunk-check.sh`, not by prose.
 
+### Cadence — one arrival per chunk
+
+Both gates stand, but steady-state they share a single human arrival: the
+implement session exits with verify green, the review packet assembled, the
+retro pre-filled, and the *next* chunk's plan drafted ahead — then stops, which
+fires the notification. The arrival is: review the diff, gate, commit; pin and
+freeze the next chunk (its questions answered, its plan gate run); clear the
+window and leave it implementing. Drafting moves ahead of the commit; pinning
+never does — the split, its contamination rules, and the `tracked`-mode caveat
+are in `references/plan.md` § Draft-ahead. Adopted 2026-07-31: two gates
+arriving as separate interruptions was ceremony chafe in five of the first
+fourteen field-log entries.
+
 ## Non-negotiables
 
 1. **The oracle is executable and written blind.** Validation = real test
@@ -59,20 +72,28 @@ exits through the same review gate). Stage lives in the chunk's
 5. **Scope is declared, then enforced.** The diff must stay inside the
    declared paths (plus tests and chunk docs). Expansion is a
    stop-and-surface, not a judgment call.
-6. **Two human gates, both instrumented.** Predict-then-compare on the plan;
-   review-before-commit on the diff. Gates earn their keep via the field log
-   or get demoted — by data, not by mood.
-7. **Ceremony must be proportionate.** Trivial work (no design decision,
-   1–2 files, reversible) bypasses the lifecycle: do it, human reviews the
-   diff, record `bypassed`. `chunk-check.sh bypass` requires `size_class`
-   to be exactly `trivial` and refuses from any stage past `ready`, so the
-   escape hatch cannot quietly become "skip the ceremony, I'm in a hurry".
+6. **Two human gates, both instrumented.** Predict-then-compare on the plan
+   (blind predictions for `standard` chunks; `small` chunks gate on
+   read-and-verdict alone — softened 2026-07-31); review-before-commit on the
+   diff. Gates earn their keep via the field log or get demoted — by data, not
+   by mood.
+7. **Ceremony must be proportionate.** Trivial work — no design decision,
+   small blast radius, trivially reversible — bypasses the lifecycle: do it,
+   human reviews the diff, record `bypassed`. The file count is a *proxy* for
+   blast radius, not a gate: `git add` of a twenty-file directory is one
+   reversible decision and is trivial; a two-line change to an auth check is
+   not. **Before escalating out of `trivial` because an oracle is writable, ask
+   whether the thing can regress** — assertable is not the same as worth
+   asserting. `chunk-check.sh bypass` requires `size_class` to be exactly
+   `trivial`, so the escape hatch cannot quietly become "skip the ceremony,
+   I'm in a hurry"; correcting an over-escalation later needs `--downgrade`
+   and is recorded.
 
 ## Operations — load only the stage in play
 
 | Operation | When | Read |
 |---|---|---|
-| `audit-readiness` | Before planning: is this chunk fit to plan, is disk consistent with state, is baseline green? | `references/audit-readiness.md` |
+| `audit-readiness` | Before planning: is this chunk fit to plan, is disk consistent with state, is baseline green? **Skip for `trivial` — run the suite and go straight to `bypass`** | `references/audit-readiness.md` |
 | `plan` | Chunk is `ready`: write red tests + cold-executable plan, run the human plan gate, freeze the oracle | `references/plan.md` |
 | `implement` | Chunk is `approved`: execute the plan to green without touching the oracle | `references/implement.md` |
 | `audit-implementation` | Implementation done: deterministic verify, package for human review before commit, run the retro | `references/audit-implementation.md` |
@@ -151,13 +172,27 @@ prose asking anyone to be careful.
   `approved`
 - `verify` — oracle unchanged, the frozen oracle re-run and green with the same
   node-ids, diff ⊆ declared scope, suite green, no commits the review gate has
-  not approved → stage `verified`
+  not approved → stage `verified`. Refuses on any bypassed chunk: no freeze
+  happened, so there is nothing here to check and the review gate is its exit
 - `log` — the retro's field-log line is really in the log file, carries a legal
   `gate:` verdict and has no field left as `?` → record it in `state.json`
 - `gate <verdict>` — record the human's review verdict; from `verified` or
   `bypassed` only → `done`, back to `approved`, or `blocked`. `approved`
-  re-reads the field log and refuses without the entry
-- `bypass "<what>"` — `trivial` chunks only → stage `bypassed`
+  re-reads the field log and refuses without the entry, then **hands off**: it
+  names the next chunk (first sibling directory whose `state.json` is not
+  `done` — no markdown parsed) and prints a pasteable resume prompt, because
+  `done` is terminal for the chunk and used to be a dead end for the session.
+  On a *bypassed* chunk it also records what actually shipped into
+  `bypass_shipped`, since such a chunk has no `implement` op and no `verify`
+  run, so its work otherwise appears in no state field at all
+- `bypass "<what>"` — `trivial` chunks only, from `specified` or `ready` →
+  stage `bypassed`. Runs `suite_cmd` before the stamp and records the exit code
+  in `bypass_suite`, so the trivial path's baseline evidence is a fact on disk
+  rather than a step someone was told to remember; it does not *gate* on the
+  result, because a red baseline predates the chunk. `--downgrade` is the
+  correction for an over-escalation spotted later: legal from any pre-`done`
+  stage, sets `size_class` to `trivial` and records the correction. It skips
+  `verify`, never the review gate
 - `block "<reason>"` — stage `blocked`
 - `status` — print the chunk's state
 

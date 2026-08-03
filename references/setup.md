@@ -119,20 +119,53 @@ argument surface in one place.
 | `readiness <dir>` | `specified` / `ready` / `blocked` | Full: reconcile, gate declared fields, run the baseline suite, pin `baseline_sha` + `branch`, stage `ready` |
 | `readiness <dir>` | any later stage | Reconcile-only; writes nothing |
 | `readiness <dir> --rebaseline` | any stage | Full, **and clears the freeze**: resets `test_hashes`, `oracle_red`, `oracle_green`, `gates.plan`, `plan_approved_sha`; the plan gate must run again. Previous baseline kept in `baseline_prev_sha` |
-| `freeze <dir>` | `ready` | Reconcile all four spec blocks, require an approved `predictions.md`, run `oracle_cmd` and require red, hash-pin tracked files under `test_paths`, pin `plan_approved_sha`, stage `approved` |
+| `freeze <dir>` | `ready` | Reconcile all four spec blocks, require an approved `predictions.md`, run `oracle_cmd` and require red, hash-pin tracked files under `test_paths`, pin `plan_approved_sha`, stage `approved`. Also runs `suite_cmd` once, **non-gating**, recorded as `freeze_suite` — see below |
 | `freeze <dir> --refreeze` | `approved` | The same, replacing a pin a plan gate already approved. For re-freezing after the gate adjusted the tests |
-| `verify <dir>` | any (needs a baseline and a freeze) | Oracle unchanged, frozen oracle green with the same node-ids, diff ⊆ scope, suite green, no unapproved commits → stage `verified` |
+| `verify <dir>` | any chunk that froze an oracle (needs a baseline and a freeze) | Oracle unchanged, frozen oracle green with the same node-ids, diff ⊆ scope, suite green, no unapproved commits → stage `verified`. Refuses outright while `bypass_note` is set — a bypassed chunk has no frozen oracle and its exit is the review gate. Keyed on the marker rather than on stage `bypassed`, so it still refuses after that chunk reaches `done`; `readiness --rebaseline` clears the marker and re-enables the op |
 | `log <dir>` | `verified` / `bypassed` | Find this chunk's line in the field log (first three fields = date, repo, chunk), require a legal `gate:` verdict and no `?` left in any field, record it in `state.json.field_log`. Writes nothing to the log |
 | `log <dir> --log-path <file>` | same | The same, against an explicit log file. The path is recorded, so a team pointing the log at `docs/chunks/field-log.md` states it once |
 | `gate <dir> approved` | `verified` / `bypassed` | Re-read the field log, require the recorded entry to still be there → stage `done`; the human commits from here |
 | `gate <dir> changes-requested [note]` | `verified` / `bypassed` | Back to `approved` (i.e. to `implement`) |
 | `gate <dir> rejected <reason>` | `verified` / `bypassed` | Stage `blocked`; reason required, appended to `blockers` |
 | `bypass <dir> "<what>"` | `specified` / `ready`, `size_class` = `trivial` | Stage `bypassed`; prints the field-log line to append |
+| `bypass <dir> --downgrade "<why>"` | any stage before `done`, `size_class` ≠ `trivial` | Correct an over-escalation: sets `size_class` to `trivial`, records `size_class_corrected` (previous class, originating stage, reason), stage `bypassed`. Freeze evidence is kept; the field-log line carries the real `gates.plan` verdict, not `gate:none` |
 | `block <dir> "<reason>"` | any | Stage `blocked`; reason appended to `blockers` |
 | `status <dir>` | any | Print the chunk's state |
 
 There is no `unblock`: `readiness` already clears `blockers` and re-pins, and a
 second route to one state is a second thing to keep true.
+
+**`freeze_suite` — why `freeze` runs the whole suite when it's expected to be
+red.** `freeze` pins `oracle_cmd`, which is a narrow slice of `suite_cmd`
+(feature.md's own "chunks are strictly serialized" constraint names this: from
+freeze until implementation is green, the *whole* suite is red, because the
+chunk's own new, unimplemented oracle sits inside it). A red `suite_cmd` at
+freeze time is therefore not news — but *why* it's red is: a lint, doctrine, or
+schema break baked into the files just hash-pinned looks identical, exit-code-
+wise, to the expected new-oracle red, and stayed invisible until implement's
+first full-suite run. That cost two chunks in the same feature a stop-and-
+surface each (skill-engine chunks 14 and 15: a stray path reference and a dead
+shell variable, both inside the frozen oracle's own header/body, both
+lint-only breaks unrelated to any test assertion) before `freeze` ran the
+probe. It does not gate — a red baseline is expected and blocking freeze on it
+would be the same disproportion non-negotiable #7 already refuses for
+`bypass_suite` — it records the exit code and command in `state.json` and
+prints the run's output so a human reading the freeze transcript can notice
+"this died in shellcheck, not in my new test" immediately, at freeze time,
+instead of one implementation session later.
+
+**What `--downgrade` does and does not relax.** It relaxes the stage guard on
+`bypass`, which existed so a frozen chunk could not be bypassed out of its own
+gate. It does *not* relax the review gate: a downgraded chunk is `bypassed`, and
+`bypassed` still exits through `gate`, which still re-reads the field log before
+stamping `done`. What it genuinely skips is `verify` — so it is an explicit flag
+that is never inferred, it requires a reason, and it records the stage it was
+used from. Before it existed, a chunk escalated out of `trivial` by mistake had
+no honest terminal state: `bypass` was illegal by the time the misjudgement was
+visible, and `blocked` means unfinished work. The escalation error is the single
+most valuable observation the proportionality dataset can hold, and it was the
+one the state machine could not record. Correct `spec.md`'s `size-class` block
+too, or the next `readiness` hard-fails on the divergence.
 
 ## Keeping the backstop honest
 

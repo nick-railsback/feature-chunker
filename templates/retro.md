@@ -5,6 +5,7 @@ Binary observations (see references/audit-implementation.md):
 - Plan gate verdict: approve | adjust | reject | auto-pass | n/a (bypassed)
 - Predictions meaningfully disagreed with plan: y/n
 - Oracle caught a real defect: y/n  (red->green iterations: N)
+- Oracle surfaced a defect with no red->green iteration: y/n  (where)
 - Oracle violation attempted/detected: y/n
 - Scope deviation: y/n  (logged in-scope / surfaced out-of-scope)
 - Bypass used: y/n  (appropriate in hindsight: y/n)
