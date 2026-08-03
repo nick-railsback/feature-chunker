@@ -42,13 +42,14 @@ commit already exists, and only if someone runs `verify`. The **preventer** is
 project is at `ready`/`approved`/`verified` with `gates.review` not `approved`.
 
 It lives outside the skill because hooks are user-level configuration, not skill
-content — so the rsync above does not carry it and it has to be installed once,
-separately. Neither the hook nor the check reaches the human's own terminal,
+content — the repository states the contract but does not ship the file, so it
+is wired once, separately, per install. Neither the hook nor the check reaches the human's own terminal,
 which is correct: the human committing is the design's intended exit, not the
 threat.
 
-**The hook has an oracle now, and it needed one.** `hooks/test_chunk_no_commit.py`
-(run: `python3 -m pytest hooks/test_chunk_no_commit.py -q`) exists because a
+**The hook has an oracle now, and it needed one.**
+`~/.claude/hooks/test_chunk_no_commit.py` (run: `python3 -m pytest
+~/.claude/hooks/test_chunk_no_commit.py -q`) exists because a
 2026-07 audit found this was the only hook in `~/.claude/hooks/` without a test
 file, while the far less load-bearing gates beside it all had one. Probing it by
 hand found four shapes that walked straight past: a commit message containing

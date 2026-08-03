@@ -48,8 +48,8 @@ improvise.
    deletes it. `verify` now fails when commits exist since baseline and
    `gates.review` is not `approved`. That is a detector at verify time, not a
    preventer at commit time — the preventer is an optional `PreToolUse` hook
-   (`hooks/chunk-no-commit.py`); without it, an agent that never runs
-   `verify` never meets this check.
+   (user-level configuration, per install — setup.md); without it, an agent
+   that never runs `verify` never meets this check.
 5. **No drive-by fixes.** Adjacent broken things you notice go in the
    handoff note as candidate chunks, not in this diff. One chunk, one
    diff, one review.

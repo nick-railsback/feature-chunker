@@ -113,7 +113,8 @@ cold instead (no packet on disk), run both halves here as written.
    rule that reads as airtight is worse than an honest one: the in-script check
    is a *detector*, running after the commit already exists, and it only fires
    if someone runs `verify`. The *preventer* is the optional `PreToolUse` hook
-   `hooks/chunk-no-commit.py`, which sits on the tool call itself. Neither
+   (user-level configuration, per install — setup.md), which sits on the tool
+   call itself. Neither
    reaches the human's own terminal, which is correct — the human committing is
    the design's intended exit, not the threat.
 

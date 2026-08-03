@@ -193,10 +193,11 @@ loopholes rather than check boxes:
 - **A narrowed command cannot buy a green.** `verify` re-runs the exact string
   pinned at freeze and requires each previously-red node-id to appear as
   `PASSED`. A skip, a rename, or a test that stopped being collected fails here.
-- **The harness never commits, and the rule is enforced twice.**
-  `hooks/chunk-no-commit.py` is a `PreToolUse` hook that *prevents* the tool call
-  while any chunk sits at `ready`/`approved`/`verified` without an approved
-  review gate — including through `sh -c` payloads and wrapper words like `env`.
+- **The harness never commits, and the rule is enforced twice.** An optional
+  `PreToolUse` hook — user-level configuration, not repository content; see
+  [Install](#install) — *prevents* the tool call while any chunk sits at
+  `ready`/`approved`/`verified` without an approved review gate, including
+  through `sh -c` payloads and wrapper words like `env`.
   `verify` independently *detects* commits made since baseline and hard-fails.
   Neither reaches the human's own terminal, which is correct: the human
   committing is the design's intended exit, not the threat.
@@ -218,7 +219,6 @@ and then tried to break it."
 
 ```zsh
 bash bin/test-chunk-check.sh      # the harness's oracle
-pytest hooks/test_chunk_no_commit.py   # the preventer hook's oracle
 ```
 
 ---
@@ -356,9 +356,8 @@ fail and puts a program in the path.
 
 ## Install
 
-**Requirements:** `bash`, `git`, `jq`. Python 3 only if you install the
-commit-preventer hook. The oracle and suite are shell command strings, so the
-target project can be in any language with any test runner.
+**Requirements:** `bash`, `git`, `jq`. The oracle and suite are shell command
+strings, so the target project can be in any language with any test runner.
 
 Designed for [Claude Code](https://docs.claude.com/en/docs/claude-code) Agent
 Skills. The harness itself is a standalone script — nothing in
@@ -371,14 +370,13 @@ From a clone of this repository — what installs is `SKILL.md`, `references/`,
 
 ```zsh
 rsync -a --exclude '.git' --exclude '.DS_Store' \
-      --exclude 'hooks' --exclude 'README.md' --exclude 'LICENSE' \
+      --exclude 'README.md' --exclude 'LICENSE' \
       --exclude 'CHANGELOG.md' --exclude 'CANDIDATES.md' \
       --exclude '.gitignore' \
-      --exclude '__pycache__' --exclude '.pytest_cache' \
       ./ ~/.claude/skills/feature-chunker/
 ```
 
-The excludes matter: a stray cache directory riding along is noise in an artifact
+The excludes matter: a repo-only file riding along is noise in an artifact
 whose whole argument is that nothing unexamined ships. The repo is canonical and
 the installed copy is an install, not a fork — improvements land here, versioned,
 and re-run the rsync (CHANGELOG.md is the record of what changed and why).
@@ -393,15 +391,16 @@ log into the repo.
 
 ### 2. The commit-preventer hook (optional, recommended)
 
-The hook is user-level configuration rather than skill content, so it lives
-outside the skill directory, ships outside the archive, and installs separately.
-From a clone of this repository:
+The hook is user-level configuration rather than skill content, and this
+repository does not ship one — like `feature-close`'s independent reviewer, it
+is a per-install contract. What yours must do: deny a `git commit` tool call
+while any chunk in the project sits at `ready`/`approved`/`verified` without an
+approved review gate — including commits arriving through `sh -c` payloads and
+wrapper words like `env`. `references/setup.md` § The commit-preventer hook
+records the bypass shapes a hand probe found, and the tail a static parser
+deliberately leaves to `verify`.
 
-```zsh
-cp hooks/chunk-no-commit.py ~/.claude/hooks/
-```
-
-Then register it as a `PreToolUse` hook on `Bash` in `~/.claude/settings.json`:
+Register it as a `PreToolUse` hook on `Bash` in `~/.claude/settings.json`:
 
 ```json
 {
@@ -556,9 +555,6 @@ bin/
   test-chunk-check.sh           # the backstop's own oracle
 templates/
   feature.md  spec.md  plan.md  predictions.md  retro.md  state.json  field-log.md
-hooks/                          # NOT part of the skill — user-level config
-  chunk-no-commit.py            # the PreToolUse commit preventer
-  test_chunk_no_commit.py       # its oracle, including the wrapper-bypass cases
 CHANGELOG.md                    # every earned change, cited to its incident
 CANDIDATES.md                   # maintainer-sized proposals, with the
                                 #   second-occurrence escalation rule

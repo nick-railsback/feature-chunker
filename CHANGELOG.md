@@ -15,6 +15,13 @@ through gate-approved chunks, and traced them to classes the lifecycle never
 briefed against, lessons routed to the wrong stage, and one documented
 integrity hole. The changes it earned:
 
+- **The commit-preventer hook is a contract, not shipped content.** The README
+  told a cloner to `cp hooks/chunk-no-commit.py` "from a clone of this
+  repository," but `hooks/` was never tracked — the hook has always been
+  user-level configuration living in `~/.claude/hooks/`, exactly as setup.md
+  described. The README and references now say so, framing the hook the way
+  feature-close already frames per-install mechanisms: the repository states
+  the contract; each install wires its own.
 - **Oracle-failure lessons routed to the stage that applies them.** plan.md's
   Track V gains a standing brief — the accumulated failure classes keyed on
   the oracle's *shape* (greps prose / suite lints tests / reads git state /
