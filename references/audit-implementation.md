@@ -234,10 +234,10 @@ anything from it. Then apply the incident-to-case rule to the harness itself:
   the oracle is correct exactly once. An assertion that reads history, or blobs
   at an older sha, assumes a clone depth the default CI checkout does not
   fetch. An assertion about tracked-ness assumes staging the runner never
-  performs. Whenever an oracle touches git history, HEAD, or tracked-ness,
-  calibrate it twice more before freeze: once against a shallow clone (`git
-  clone --depth 1`), and once with HEAD detached at a synthetic merge commit,
-  which is what `actions/checkout` builds for a pull request. Both are seconds
-  of work, both fail loudly, and either would have caught this class. Earned
-  2026-08-02 by `24-dogfood-corpus-refresh`, which drew all three variants at
-  once; see the field log's post-merge addendum for that entry.
+  performs. The rule this earned lives at the stage that can still act on it —
+  `references/plan.md` § The standing brief: an oracle touching git history,
+  HEAD, or tracked-ness is calibrated against a shallow clone and a detached
+  synthetic merge **before freeze**. By the time this reference is read the
+  freeze is history; if this class is being met here, it was missed there.
+  Earned 2026-08-02 by `24-dogfood-corpus-refresh`, which drew all three
+  variants at once; see the field log's post-merge addendum for that entry.

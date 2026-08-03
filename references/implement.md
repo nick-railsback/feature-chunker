@@ -76,7 +76,15 @@ improvise.
 8. **A frozen oracle can have a bug that only surfaces once implementation is
    otherwise complete — and by then, a normal `freeze --refreeze` can't prove
    the fix isn't vacuous.** Rule 1 still holds: never edit the oracle to make
-   it pass. Stop and surface (`chunk-check.sh block`), get the fix approved
+   it pass. Stop and surface — **in conversation, not with `chunk-check.sh
+   block`**: the chunk stays `approved`, which is the one stage
+   `freeze --refreeze` is legal from. `block` marks work that is genuinely
+   stopping, and an oracle fix being approved in the same breath it was found
+   is not stopped work — `blocked` also cuts off `--refreeze`, forcing a
+   `readiness`-then-`freeze` detour that re-runs the whole readiness gate to
+   undo a stage transition nothing needed (2026-08-02, skill-engine 23; the
+   three earlier oracle-bug chunks — 14, 15, 19 — stayed `approved` and
+   re-froze directly). Get the fix approved
    like any other plan-gate adjustment, then re-freeze it — but `freeze`'s
    non-negotiable-1 check requires `oracle_cmd` to exit non-zero
    unconditionally, including under `--refreeze`. If implementation is done,

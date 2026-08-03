@@ -120,6 +120,64 @@ The subagent's brief:
    untracked, so the natural way to head such a test produces a committed
    dangling pointer every time.
 
+### The standing brief — failure classes, keyed on the oracle's shape
+
+Four classes of oracle defect have recurred often enough to brief against.
+They are keyed on **conditions** — properties of the oracle being written —
+not run as a flat checklist: each applies only when the shape it names is
+present, and an oracle with none of these shapes owes none of them. Include
+the matching ones in the subagent's brief. (The first run of this brief,
+assembled ad hoc for one prose-heavy chunk, produced an oracle that hit zero
+of the classes the evidence base had accumulated — the incident→case→fix
+loop, compounding. This section is that brief made standing.)
+
+- **If the oracle greps prose** — matching phrases in a document rather than
+  running code: write the match wrap-normalized. Hand-wrapped text splits any
+  multi-word phrase across lines sooner or later, and a single-line grep then
+  reads presence as absence — content that is correct fails anyway. Normalize
+  before matching (collapse newlines and whitespace runs) or anchor on a
+  window that tolerates the wrap; do not leave reflow-the-sentence as the
+  implementer's problem (`references/implement.md` rule 7 is the consumer-side
+  half of this rule — the producer side is cheaper, because the producer gets
+  there first). The class cost two chunks their only red→green iterations and
+  a third caught it only by reading the frozen regexes line-by-line
+  (2026-07-31, skill-engine 16/17/18). And when a check greps a **tree** for a
+  forbidden string, its own source now contains that string as the pattern
+  argument: exclude the oracle's own directory, or the check fails
+  unconditionally, on itself, forever (2026-07-31, skill-engine 19).
+- **If the suite lints test files** — shellcheck, style, or doctrine checks
+  covering the paths the oracle will live under: run those linters over the
+  new test file before handing it back. A hash-pinned oracle can carry a lint
+  break in its own header that no assertion touches; `freeze` surfaces this by
+  running the whole suite once (`freeze_suite`), but that probe is non-gating
+  and its red is easily read as the expected new-oracle red. A lint-clean file
+  at authoring time is the version that cannot be misread — both layers stand;
+  two chunks paid a stop-and-surface each to earn them (2026-07-31,
+  skill-engine 14/15).
+- **If the oracle reads git history, HEAD, or tracked-ness**: calibrate it
+  twice more before it is frozen — once against a shallow clone
+  (`git clone --depth 1`), and once with HEAD detached at a synthetic merge
+  commit, which is the state a CI pull-request checkout actually runs in. An
+  assertion *about* HEAD can be true at most once, in a pre-commit state that
+  never persists; an assertion reading history assumes a fetch depth CI does
+  not perform; an assertion about tracked-ness assumes staging the runner
+  never does. Each calibration is seconds of work and fails loudly. One chunk
+  shipped three defects of this class in a single oracle, every one invisible
+  to `verify`, which runs in the one git state the shipped code never lives
+  in (2026-08-02, skill-engine 24 post-merge;
+  `references/audit-implementation.md` § Failure modes has the autopsy).
+- **If the chunk's deliverable is itself a check** — a linter, a gate, a
+  validator: the oracle must include at least one input the deliverable is
+  required to **reject**. A checker's characteristic failure is passing when
+  it should fail — a result flag never set, a limit read from the wrong line,
+  a pattern missing one spelling of the thing it forbids — and an oracle that
+  only feeds it conforming input is structurally blind to all of it. This
+  skill already applies the discipline to its own backstop (the delete-a-check
+  trials in `bin/test-chunk-check.sh`'s header); a chunk whose product is a
+  check gets the same treatment. An independent whole-diff review of the first
+  full feature found three shipped checkers with exactly this defect, all
+  through gate-approved chunks whose oracles fed them only valid input.
+
 **What it returns:** the red run's output and a one-paragraph summary of what
 it asserted — **not** the test source. The parent's window carries the minimum
 needed to plan against, and the tests stay unread by the thing planning around
@@ -141,6 +199,20 @@ them for as long as possible.
    (`Read`/`Glob`/`Grep`, no write, no shell). Findings land in the plan, not
    in the window — the plan is the artifact that crosses the session
    boundary; the exploration texture dies here, by design.
+
+**Price the oracle cadence to the chunk's shape.** The default rhythm a plan
+prescribes — run the oracle after each step, so a red localizes to the step
+that caused it — fits chunks where a step is the unit a failure attaches to.
+For a chunk that is many small, independently checkable facts (citation
+corrections, link fixes, mass renames), that default localizes *worse* than
+verifying each fact directly against its source as the work happens: the
+oracle reports an undifferentiated red over dozens of facts, and a structural
+oracle cannot see a fact that has gone **false** rather than stale — the one
+defect class that shape hides. Direct per-fact verification plus a
+final oracle run caught exactly that where per-step runs would not have
+(2026-08-02, skill-engine 24: a claim whose referent no longer existed), with
+the oracle run only twice — pickup red-confirm and final green. The plan
+states which rhythm it prescribes, and why.
 
 If the two tracks disagree — the plan can't satisfy a test, or a test asserts
 something the spec doesn't actually require — **stop and surface**. Do not
