@@ -99,12 +99,14 @@ fourteen field-log entries.
 | `plan` | Chunk is `ready`: write red tests + cold-executable plan, run the human plan gate, freeze the oracle | `references/plan.md` |
 | `implement` | Chunk is `approved`: execute the plan to green without touching the oracle | `references/implement.md` |
 | `audit-implementation` | Implementation done: deterministic verify, package for human review before commit, run the retro | `references/audit-implementation.md` |
+| `feature-close` | The last chunk is `done`, before release: independent review of the cumulative diff by a reviewer that did not write the chunks, recorded as a repo artifact | `references/feature-close.md` |
 | *(not a stage)* | Installing the skill or the commit-preventer hook, the field log's location and team variant, the full `chunk-check.sh` argument surface | `references/setup.md` |
 
 **Sibling skill.** `tdd-remediation` covers the reactive case: a findings
 report exists and each finding gets its own commit. The two carry opposite
 commit law by design — do not load both. If a request is ambiguous, ask which
-it is before starting.
+it is before starting. `feature-close`'s review artifact is the canonical
+handoff from this skill to that one.
 
 ## Feature setup — three questions, asked once
 

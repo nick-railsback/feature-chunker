@@ -24,6 +24,16 @@ integrity hole. The changes it earned:
   routes an in-flight oracle-bug fix through `block` (a detour `blocked`
   forces by cutting off `freeze --refreeze`); plan.md's Track P prices the
   oracle-run cadence to the chunk's shape.
+- **`feature-close` named as the lifecycle's last stage**
+  (references/feature-close.md): after the last chunk, before release, the
+  cumulative diff gets one review by a reviewer that did not write the chunks,
+  recorded as a repo artifact. A contract, not a tool — the mechanism is
+  per-install, like the commit-preventer hook. Earned by the review itself:
+  ten defects shipped through 24 frozen oracles and 24 human gates, and the
+  independent whole-diff audit found them in minutes, because same-author
+  oracles and a same-thread human cannot have uncorrelated blind spots with
+  the implementation, and per-chunk scope discipline means no stage asserts
+  the seams between chunks.
 - **`predict` op** (schema 9 → 10): the blind half of predict-then-compare
   becomes a mechanism. `predict` stamps the filled top half of
   `predictions.md` into `state.json` while the verdict is still blank —
