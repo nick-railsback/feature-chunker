@@ -174,7 +174,14 @@ prose asking anyone to be careful.
   while the verdict is still blank (refusing unfilled blanks and a
   pre-recorded verdict), noting whether a plan draft was on disk. This makes
   "the predictions were blind" a checkable claim rather than a remembered
-  order of operations
+  order of operations. `--one-pass` is the recovery for a file already filled
+  in one pass: it stamps the top half anyway and **records that it happened
+  that way**, because the refusal's only other exit — blank the verdict, stamp,
+  restore it — is the same motion as laundering a prediction written after the
+  plan, leaving the script to take a reconstruction on trust. The flag is
+  refused when the verdict is still blank, so it cannot replace the strong path;
+  what it drops is the ordering claim, stated in the record rather than in a
+  comment, and `freeze` and `status` report the weaker tier
 - `freeze` — the plan gate happened and approved, all four spec blocks agree
   with state, `oracle_cmd` runs **red** with no test green at birth and no
   collection error → hash-pin every tracked file under `test_paths`, stage

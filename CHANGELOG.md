@@ -38,6 +38,39 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — `predict --one-pass`: a recovery that records instead of reconstructs
+
+`predict` refuses a `predictions.md` filled in one pass, verdict included —
+correctly, since that shape records a gate's outcome about a plan that did not
+yet exist. But the refusal left exactly one route back to a stamp: blank the
+verdict, stamp, restore it. That motion is byte-identical to what someone would
+do to launder a prediction written *after* reading the plan, so the refusal
+manufactured, as its own recovery, the act it exists to prevent — and the script
+then had to take the reconstruction on trust, recording nothing.
+
+Observed twice on `supply-chain-ops-assistant` (2026-08-04). Chunk
+`01-inventory-patch-contract` paid the reconstruction and named it in its
+field-log line as the harness's one real gap, with the fix already specified:
+*"`predict` needs a recovery path for a one-pass fill that records what happened
+instead of forcing a reconstruction the script must then take on trust."* Chunk
+`02-adjust-inventory-action` hit it again the same day and built that.
+
+`predict <dir> --one-pass` stamps the top half as it stands and records
+`one_pass: true` plus `verdict_at_stamp`. Everything the stamp did prove it
+still proves — the top half was filled at stamp time, and `freeze` still refuses
+one that moved afterwards. What it drops is the ordering claim, which becomes
+attested by the operator rather than observed by the script, and `freeze` and
+`status` report that as its own tier rather than a clean pass. Three properties
+keep it from becoming the habitual invocation: it is refused when the verdict is
+still blank (the `--refreeze` principle — keep the honest case available and the
+quiet one out of reach), the top-half hash binds exactly as on the strong path,
+and the weaker claim lands in the record rather than in a comment.
+
+Cases 68a–68e in `bin/test-chunk-check.sh` (223 → 241). All six new guarantees
+were delete-a-check mutation-tested: the op-scope guard, the blank-verdict
+refusal, both state fields, freeze's tier, and status's marker each turn the
+suite red when removed.
+
 ## 2026-08-03 — remediating the first skill review
 
 An independent review of the skill after the first full feature (2026-08-02)

@@ -242,6 +242,25 @@ decisions belong to the human. On a spec change, re-derive both tracks.
    scope narrowing of the device, not a retirement of the gate: the demotion
    rule still governs whether `small` chunks may ever *auto-pass*, and its
    streak still counts their verdicts.
+
+   **If the file was already filled in one pass, do not blank the verdict and
+   restamp.** That was the only exit the refusal left, and it is byte-identical
+   to laundering a prediction written after the plan was read — so the refusal
+   manufactured, as its own recovery, the act it exists to prevent, and the
+   script then took the reconstruction on trust with nothing recorded. Run
+   `chunk-check.sh predict <chunk-dir> --one-pass` instead: it stamps the top
+   half as it stands and records `one_pass: true` with the verdict that was
+   already there. Everything the stamp did prove it still proves — the top half
+   was filled at stamp time, and `freeze` still refuses one that moved
+   afterwards. What it drops is the ordering claim, which becomes **attested by
+   the operator rather than observed by the script**: reported as its own tier
+   by `freeze` and `status`, and expected in the retro's field-log line. The flag
+   is refused when the verdict is still blank, so it cannot quietly become the
+   habitual invocation. Earned twice in one day (2026-08-04,
+   supply-chain-ops-assistant chunks 01 and 02): the first paid the
+   reconstruction and named the gap in its field-log line, the second built the
+   fix rather than paying it again.
+
 2. Human reads the plan and the red tests, notes disagreements with their
    predictions, and records two lines in `predictions.md`:
    `Verdict: approve | adjust | reject` and `Adjusted: y|n`. Disagreement

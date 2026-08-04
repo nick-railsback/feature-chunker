@@ -17,7 +17,7 @@ die()  { printf 'ERROR %s\n' "$1" >&2; exit 2; }
 
 usage() { die "usage: chunk-check.sh <readiness|predict|freeze|verify|log|gate|bypass|block|status> <chunk-dir> [args]
        flags: --rebaseline (readiness), --refreeze (freeze), --log-path <file> (log),
-              --downgrade (bypass)"; }
+              --downgrade (bypass), --one-pass (predict)"; }
 
 [ $# -ge 2 ] || usage
 OP="$1"; CHUNK_ARG="$2"; shift 2
@@ -25,6 +25,7 @@ OP="$1"; CHUNK_ARG="$2"; shift 2
 OPT_REBASELINE=0
 OPT_REFREEZE=0
 OPT_DOWNGRADE=0
+OPT_ONE_PASS=0
 OPT_LOG_PATH=""
 EXTRA1=""
 EXTRA2=""
@@ -33,6 +34,7 @@ while [ $# -gt 0 ]; do
     --rebaseline) OPT_REBASELINE=1 ;;
     --refreeze)   OPT_REFREEZE=1 ;;
     --downgrade)  OPT_DOWNGRADE=1 ;;
+    --one-pass)   OPT_ONE_PASS=1 ;;
     --log-path)   shift; [ $# -gt 0 ] || die "--log-path needs a file path"; OPT_LOG_PATH="$1" ;;
     --*)          die "unknown option: $1" ;;
     *)            if [ -z "$EXTRA1" ]; then EXTRA1="$1"; else EXTRA2="${EXTRA2:+$EXTRA2 }$1"; fi ;;
@@ -44,6 +46,10 @@ done
 # the wrong op must not read as "accepted and had no effect".
 [ "$OPT_DOWNGRADE" -eq 0 ] || [ "$OP" = "bypass" ] \
   || die "--downgrade applies to 'bypass' only (given: $OP)"
+# --one-pass downgrades what the predict stamp claims. Same reasoning: a typo
+# that lands it on another op must not silently read as accepted.
+[ "$OPT_ONE_PASS" -eq 0 ] || [ "$OP" = "predict" ] \
+  || die "--one-pass applies to 'predict' only (given: $OP)"
 
 command -v jq  >/dev/null 2>&1 || die "jq is required"
 command -v git >/dev/null 2>&1 || die "git is required"
@@ -686,6 +692,33 @@ print_handoff() {
 # time is the draft-ahead case, where blindness rests on the plan having been
 # withheld; the honesty is on the human, and recording the condition is what
 # makes the claim inspectable instead of assumed.
+#
+# § The one-pass recovery (--one-pass). Refusing a one-pass fill is correct and
+# leaves the operator with exactly one route back to a stamp: blank the verdict,
+# stamp, restore the verdict. That motion is byte-identical to what someone would
+# do to launder a prediction written AFTER reading the plan — so the refusal
+# manufactured, as its only recovery, the very act it exists to prevent, and the
+# script then had to take the reconstruction on trust with nothing recorded.
+# Observed twice: supply-chain-ops-assistant 01-inventory-patch-contract
+# (2026-08-04, recovered by reconstruction, and named in that chunk's field-log
+# line as the harness's one real gap) and 02-adjust-inventory-action the same
+# day, which is the occurrence that built this.
+#
+# So: --one-pass accepts the already-filled file, stamps the top half, and writes
+# `one_pass: true` plus the verdict that was sitting there. It does not pretend
+# the strong claim holds. The tier is reported by freeze and by status, and the
+# retro's field-log line is expected to name it. Three properties keep the flag
+# from becoming the habitual invocation:
+#   - it is REFUSED when the verdict is still blank, so it cannot be used where
+#     the strong path was free (the --refreeze principle: keep the honest case
+#     available and the quiet one out of reach);
+#   - the top-half hash is stamped and bound exactly as on the strong path, so
+#     everything the stamp did prove, it still proves;
+#   - what it drops is stated in the record rather than in a comment, which is
+#     the whole difference between a weaker claim and a false one.
+# The hash is unaffected by the verdict either way: predictions_top_half() stops
+# at the compare-half markers, so a one-pass file hashes the same bytes a blind
+# one would.
 predictions_top_half() { # everything above the compare-half markers
   awk '/^## Disagreements/ || /^## Verdict/ || /^Verdict:/ { exit } { print }' "$1"
 }
@@ -802,6 +835,9 @@ predict)
     *) fail "predict is legal from stage 'ready' only — the top half is stamped after readiness, before the plan is read; found '$stage'" ;;
   esac
   pred="$CHUNK_DIR/predictions.md"
+  one_pass=false
+  v_tok=""
+  a_tok=""
   if [ ! -f "$pred" ]; then
     fail "predictions.md missing — stamp it from templates/predictions.md and fill the top half first"
   else
@@ -810,16 +846,40 @@ predict)
     fi
     v_tok="$(pred_line_token "$pred" Verdict)"
     a_tok="$(pred_line_token "$pred" Adjusted)"
-    case "$v_tok" in
-      ""|___) ;;
-      *) fail "predictions.md already carries a verdict ('$v_tok') — predict stamps the blind top"
-         fail "  half BEFORE the plan is read. A file filled in one pass records a gate's outcome"
-         fail "  about a plan that did not exist yet, which is the incident this op closes." ;;
-    esac
-    case "$a_tok" in
-      ""|___) ;;
-      *) fail "predictions.md already answers Adjusted ('$a_tok') — that line belongs to the verdict, after the plan is read" ;;
-    esac
+    compare_half_filled=0
+    case "$v_tok" in ""|___) ;; *) compare_half_filled=1 ;; esac
+    case "$a_tok" in ""|___) ;; *) compare_half_filled=1 ;; esac
+    if [ "$OPT_ONE_PASS" -eq 1 ]; then
+      # The recovery path for a file already filled in one pass. See the op's
+      # header comment, § The one-pass recovery.
+      if [ "$compare_half_filled" -eq 0 ]; then
+        fail "--one-pass given, but predictions.md carries no verdict yet — the strong path is"
+        fail "  available, so take it: run predict without the flag. --one-pass records a weaker"
+        fail "  claim, and a weaker claim taken when the strong one was free is just a worse record."
+      else
+        one_pass=true
+        warn "--one-pass: predictions.md already carries Verdict='$v_tok' Adjusted='$a_tok'."
+        warn "  Stamping the top half anyway, and RECORDING that it happened this way. What this"
+        warn "  stamp still proves: the top half was filled at stamp time, and freeze will prove it"
+        warn "  did not change afterwards. What it does NOT prove: that the top half was written"
+        warn "  before the plan was read. That ordering is ATTESTED by the operator, not observed"
+        warn "  by this script. freeze and status report the weaker tier; say so in the field log."
+      fi
+    else
+      case "$v_tok" in
+        ""|___) ;;
+        *) fail "predictions.md already carries a verdict ('$v_tok') — predict stamps the blind top"
+           fail "  half BEFORE the plan is read. A file filled in one pass records a gate's outcome"
+           fail "  about a plan that did not exist yet, which is the incident this op closes."
+           fail "  If the fill really was predict-then-read, do NOT blank the verdict and restamp:"
+           fail "  that motion is indistinguishable from laundering a prediction written after the"
+           fail "  plan. Re-run with --one-pass, which stamps it and records the weaker claim." ;;
+      esac
+      case "$a_tok" in
+        ""|___) ;;
+        *) fail "predictions.md already answers Adjusted ('$a_tok') — that line belongs to the verdict, after the plan is read" ;;
+      esac
+    fi
   fi
   if [ "$FAIL" -eq 0 ]; then
     prior="$(jget '.predict.at // empty')"
@@ -831,9 +891,13 @@ predict)
       warn "  rests on the plan having been withheld until the blanks were filled; recording"
       warn "  the condition is what keeps that claim inspectable instead of assumed."
     fi
-    if jset '.predict = {at: $now, top_hash: $h, plan_present: $pp}' \
-        --arg h "$(predictions_top_hash "$pred")" --argjson pp "$plan_present"; then
-      if [ "$plan_present" = "true" ]; then
+    if jset '.predict = {at: $now, top_hash: $h, plan_present: $pp, one_pass: $op,
+                         verdict_at_stamp: (if $op then $v else null end)}' \
+        --arg h "$(predictions_top_hash "$pred")" --argjson pp "$plan_present" \
+        --argjson op "$one_pass" --arg v "$v_tok"; then
+      if [ "$one_pass" = "true" ]; then
+        pass "top half stamped — one_pass=true recorded; freeze reports the attested tier, not the observed one"
+      elif [ "$plan_present" = "true" ]; then
         pass "top half stamped — plan_present=true recorded; freeze will report this tier"
       else
         pass "top half stamped — no plan.md on disk: blind by construction"
@@ -919,7 +983,16 @@ freeze)
     stamp_at="$(jget '.predict.at // empty')"
     if [ -n "$stamp_at" ]; then
       if [ "$(predictions_top_hash "$pred")" = "$(jget '.predict.top_hash // empty')" ]; then
-        if [ "$(jget '.predict.plan_present')" = "true" ]; then
+        if [ "$(jget '.predict.one_pass // false')" = "true" ]; then
+          # The weakest tier that still stamps. Loud, but not a failure: the
+          # flag would be pointless if it blocked, and the point is to record
+          # the weaker claim rather than force a reconstruction nobody can check.
+          warn "predict stamp was taken with --one-pass: predictions.md already carried a verdict"
+          warn "  ('$(jget '.predict.verdict_at_stamp // empty')') when the top half was stamped."
+          warn "  The top half is unchanged since — that much is proven. Blind-before-plan is"
+          warn "  ATTESTED by the operator, not observed here. Name it in the retro's field-log line."
+          pass "predict stamp verified ($stamp_at) — attested tier (one-pass); see the warning above"
+        elif [ "$(jget '.predict.plan_present')" = "true" ]; then
           pass "predict stamp verified ($stamp_at) — plan.md was on disk at stamp time: blindness rests on it having been withheld (draft-ahead)"
         else
           pass "predict stamp verified ($stamp_at) — stamped before plan.md existed: blind by construction"
@@ -1413,7 +1486,7 @@ status)
          "oracle_cmd:     \(.oracle_cmd)",
          "oracle red:     exit \(.oracle_red.exit_code // "-") · \((.oracle_red.node_ids // []) | length) node-id(s) · \(.oracle_red.id_source // "-")",
          "oracle green:   \(.oracle_green.evidence_tier // "-")",
-         "predict:        \(if .predict then "stamped \(.predict.at) · plan_present=\(.predict.plan_present)" else "-" end)",
+         "predict:        \(if .predict then "stamped \(.predict.at) · plan_present=\(.predict.plan_present)\(if .predict.one_pass then " · ONE-PASS (attested, not observed)" else "" end)" else "-" end)",
          "freeze suite:   \(if .freeze_suite then "exit \(.freeze_suite.exit) · \(.freeze_suite.cmd)" else "-" end)",
          "baseline_sha:   \(.baseline_sha)",
          "baseline_prev:  \(.baseline_prev_sha)",

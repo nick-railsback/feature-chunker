@@ -1487,6 +1487,78 @@ expect "66 freeze names the draft-ahead tier, not blind-by-construction" 0 "with
 quiet_check "$d" readiness --rebaseline
 assert_eq "66 rebaseline clears the predict stamp with the rest of the gate" "$(state_get "$d" '.predict')" "null"
 
+# --- 68: the one-pass recovery (--one-pass) ---------------------------------
+# Case 62 pins the refusal. This pins what the operator is left holding after
+# it. The only route back to a stamp used to be: blank the verdict, stamp,
+# restore it — byte-identical to laundering a prediction written AFTER the plan
+# was read, and taken on trust with nothing recorded. So the refusal
+# manufactured, as its own recovery, the act it exists to prevent. --one-pass
+# stamps the file as it stands and records the weaker claim instead.
+# Earned twice on supply-chain-ops-assistant, 2026-08-04 (chunks 01 and 02).
+
+# 68a — the flag is scoped to its op, like --downgrade. A typo landing it
+#       elsewhere must not read as "accepted and had no effect".
+d="$(new_fixture case68a 'bash tests/chunk/oracle.sh' tracked standard)"
+expect "68a --one-pass on another op: refused" 2 "applies to 'predict' only" -- chunk_check "$d" readiness --one-pass
+
+# 68b — refused when the strong path was free. This is what keeps the flag from
+#       becoming the habitual invocation (the --refreeze principle: keep the
+#       honest case available and the quiet one out of reach).
+d="$(new_fixture case68b 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+expect "68b --one-pass with the verdict still blank: refused" 1 "the strong path is" -- chunk_check "$d" predict --one-pass
+assert_eq "68b nothing stamped on the refusal" "$(state_get "$d" '.predict')" "null"
+
+# 68c — the recovery itself, on the shape that motivated it: a file filled in
+#       one pass, verdict included, which plain predict refuses.
+d="$(new_fixture case68c 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_predictions "$d" approve n
+expect "68c plain predict still refuses the one-pass fill" 1 "already carries a verdict" -- chunk_check "$d" predict
+expect "68c the refusal names the flag, not blank-and-restamp" 1 "Re-run with --one-pass" -- chunk_check "$d" predict
+expect "68c the refusal names blanking as the thing NOT to do" 1 "do NOT blank the verdict and restamp" -- chunk_check "$d" predict
+out="$(chunk_check "$d" predict --one-pass 2>&1)"; rc=$?
+assert_eq "68c --one-pass stamps it" "$rc" "0"
+assert_contains "68c the weaker claim is stated at stamp time" "$out" "ATTESTED by the operator, not observed"
+assert_eq "68c one_pass recorded true" "$(state_get "$d" '.predict.one_pass')" "true"
+assert_eq "68c the verdict that was sitting there is recorded" "$(state_get "$d" '.predict.verdict_at_stamp')" "approve"
+out="$(chunk_check "$d" status 2>&1)"
+assert_contains "68c status flags the attested tier" "$out" "ONE-PASS (attested, not observed)"
+expect "68c freeze accepts the stamp" 0 "attested tier (one-pass)" -- chunk_check "$d" freeze --refreeze
+expect "68c freeze names the tier loudly rather than passing quietly" 0 "not observed here" -- chunk_check "$d" freeze --refreeze
+
+# 68d — the flag drops the ORDERING claim and nothing else. Everything the
+#       stamp did prove, it still proves: a top half edited after a one-pass
+#       stamp is refused exactly as case 63 refuses it on the strong path. If
+#       this ever passes, --one-pass has become "skip the gate".
+d="$(new_fixture case68d 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_predictions "$d" approve n
+quiet_check "$d" predict --one-pass
+printf '%s\n' \
+  '# plan gate (predict-then-compare)' '' \
+  '- Expected approach: entirely rewritten after reading the plan' \
+  '- Expected files touched: src/feature.txt' \
+  '- Biggest risk: none' '' \
+  '## Verdict' '' 'Verdict: approve' 'Adjusted: n' \
+  > "$d/$CHUNK/predictions.md"
+expect "68d one-pass stamp still binds the top half" 1 "changed after the predict stamp" -- chunk_check "$d" freeze
+
+# 68e — the strong path keeps its own tier. A one_pass flag that leaked onto an
+#       ordinary stamp would quietly downgrade every honest gate, and the tier
+#       lines are the only place the difference is visible.
+d="$(new_fixture case68e 'bash tests/chunk/oracle.sh' tracked standard)"
+quiet_check "$d" readiness
+write_blind_predictions "$d"
+quiet_check "$d" predict
+assert_eq "68e ordinary stamp records one_pass=false" "$(state_get "$d" '.predict.one_pass')" "false"
+assert_eq "68e ordinary stamp records no verdict" "$(state_get "$d" '.predict.verdict_at_stamp')" "null"
+fill_verdict "$d" approve n
+expect_absent "68e ordinary stamp is not reported as attested" "attested tier" -- chunk_check "$d" freeze
+out="$(chunk_check "$d" status 2>&1)"
+assert_absent "68e status does not flag an ordinary stamp" "$out" "ONE-PASS"
+
 # 67 — `log` computes the demotion streak from the entries themselves. The
 #      live log's hand-maintained header count went stale within days — a
 #      manual counter feeding the one mechanism that adapts ceremony downward
