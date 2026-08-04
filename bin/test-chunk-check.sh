@@ -299,6 +299,23 @@ new_fixture() { # new_fixture <name> [oracle_cmd] [tracked|untracked] [size_clas
     'exit 1' \
     > "$repo_dir/tests/chunk/collect.sh"
 
+  # Same, with no node-id — a module that failed to import is reported against
+  # the file. The discriminator must not narrow to '::' and lose this.
+  printf '%s\n' \
+    'echo "ERROR tests/chunk/t.py - ImportError: cannot import name qux"' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/collectfile.sh"
+
+  # Legitimately red, but the code under test logged at ERROR level and pytest
+  # echoed the record under "Captured log call". Shares the '^ERROR' prefix and
+  # is not a collection error — often it is the behaviour under test.
+  printf '%s\n' \
+    'echo "FAILED tests/chunk/t.py::test_b - feature absent"' \
+    'echo "--------------------------- Captured log call ----------------------------"' \
+    'echo "ERROR    pkg.mod:mod.py:474 Action failed for INV-00000001: unknown ID prefix."' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/logerror.sh"
+
   # The feature-level doc that carries the chunk queue. It lives one level above
   # the chunk directory, which is why the scope check has to know about it.
   printf '%s\n' '# feature' '' '| 01 | x | small | specified |' \
@@ -566,7 +583,7 @@ expect "20c small chunk, blanks tolerated but no Verdict: freeze refused" 1 "no 
 #      pass while the fixture quietly tracked the docs anyway, proving nothing.
 d="$(new_fixture case21 'bash tests/chunk/oracle.sh' untracked)"
 assert_eq "21 untracked docs: nothing under docs/chunks is tracked" "$(tracked_count "$d" docs/chunks)" "0"
-assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "4"
+assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "6"
 expect "21 untracked docs: readiness pins the baseline" 0 "stage=ready"    -- chunk_check "$d" readiness
 expect "21 untracked docs: freeze pins the oracle"      0 "stage=approved" -- chunk_check "$d" freeze
 implement "$d"
@@ -649,6 +666,24 @@ expect "26 green-at-birth test in a red run: freeze fails, naming it" 1 "green-a
 d="$(new_fixture case27 'bash tests/chunk/collect.sh')"
 quiet_check "$d" readiness
 expect "27 collection ERROR in the red run: freeze fails" 1 "red for the wrong reason" -- chunk_check "$d" freeze
+
+# 27b — the discriminator. An ERROR-level LOG record shares the '^ERROR' prefix
+#       with a collection error and is not one: code under test logging at
+#       ERROR is normal, and is sometimes the behaviour the oracle asserts.
+#       Matching bare '^ERROR' refused a correctly-red oracle for it
+#       (2026-08-04, supply-chain-ops-assistant 02-adjust-inventory-action).
+d="$(new_fixture case27b 'bash tests/chunk/logerror.sh')"
+quiet_check "$d" readiness
+out="$(chunk_check "$d" freeze 2>&1)"; rc=$?
+assert_eq "27b red run carrying an ERROR log record: freeze passes" "$rc" "0"
+assert_absent "27b the log record is not read as a collection error" "$out" "red for the wrong reason"
+
+# 27c — and the narrowing must not overshoot. A module that fails to import is
+#       reported against the file, with no node-id; that is still a collection
+#       error. A discriminator keyed on '::' alone would wave it through.
+d="$(new_fixture case27c 'bash tests/chunk/collectfile.sh')"
+quiet_check "$d" readiness
+expect "27c collection ERROR with no node-id: freeze still fails" 1 "red for the wrong reason" -- chunk_check "$d" freeze
 
 # 28 — no predictions.md at all. The gate did not happen.
 d="$(new_fixture case28)"

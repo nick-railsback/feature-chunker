@@ -220,7 +220,22 @@ oracle_ids() { # oracle_ids <logfile> <PASSED|FAILED|ERROR> — real node-ids on
     | awk '{print $2}' | grep '::' | sort -u
 }
 
-oracle_error_lines() { grep -E '^ERROR[[:space:]]' "$1" 2>/dev/null; }
+# A collection/setup error is reported as "ERROR <location>", where the
+# location is a node-id or a file path. Captured *log* records share the prefix
+# — pytest's default log format is "%(levelname)-8s %(name)s:%(file)s:%(line)d",
+# so an ERROR-level log line printed under a failing test reads
+# "ERROR    pkg.mod:mod.py:474 ...". Matching bare '^ERROR' conflated the two
+# and refused the freeze of a correctly-red oracle whose code under test logs at
+# ERROR level — which is normal behaviour, often the very behaviour under test,
+# not a broken oracle. Discriminate on the subject's SHAPE: a location carries
+# '::' or ends in '.py'; a logger name carries neither. Padding is not the
+# discriminator — log_format is configurable and the shape is not.
+# Earned 2026-08-04 (supply-chain-ops-assistant 02-adjust-inventory-action,
+# whose oracle asserts a dispatch failure the handler logs at ERROR).
+oracle_error_lines() {
+  grep -E '^ERROR[[:space:]]+[^[:space:]]+' "$1" 2>/dev/null \
+    | awk '{ if ($2 ~ /::/ || $2 ~ /\.py$/) print }'
+}
 
 ids_to_json() { jq -R -s 'split("\n") | map(select(length > 0)) | unique'; }
 
@@ -945,6 +960,19 @@ freeze)
     pass "oracle red at freeze (exit $oracle_rc) — evidence in $CHUNK_REL/oracle-red.log"
   fi
 
+  # Red for the wrong reason, checked at EVERY node-id tier. This used to sit
+  # inside the id-capture branch below, which skipped it in precisely the worst
+  # case: a module that fails to import produces no node-ids at all, so the run
+  # where *nothing executed* was the one run the check did not inspect. Case 27
+  # had pinned the check on a fixture whose ERROR line happened to carry a
+  # node-id — which made it reachable and the gap invisible, the "passes for the
+  # wrong reason" class this suite's header warns about. Found 2026-08-04.
+  err_lines="$(oracle_error_lines "$red_log")"
+  if [ -n "$err_lines" ]; then
+    fail "the red run reports collection/setup ERRORs — red for the wrong reason:"
+    printf '%s\n' "$err_lines" | sed 's/^/        /'
+  fi
+
   red_ids="$(oracle_ids "$red_log" FAILED; oracle_ids "$red_log" ERROR)"
   red_ids="$(printf '%s' "$red_ids" | sort -u)"
   id_source="unparsed"
@@ -955,11 +983,6 @@ freeze)
     if [ -n "$green_at_birth" ]; then
       fail "green-at-birth tests — these passed before the feature exists, so they assert nothing:"
       printf '%s\n' "$green_at_birth" | sed 's/^/        /'
-    fi
-    err_lines="$(oracle_error_lines "$red_log")"
-    if [ -n "$err_lines" ]; then
-      fail "the red run reports collection/setup ERRORs — red for the wrong reason:"
-      printf '%s\n' "$err_lines" | sed 's/^/        /'
     fi
   else
     warn "no per-test node-ids in the oracle output — evidence is exit-code only."

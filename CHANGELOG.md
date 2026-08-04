@@ -7,6 +7,37 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-04 — the collection-ERROR check: two defects, one of them a hole
+
+`freeze` refuses a red run that reports collection or setup `ERROR`s — red for
+the wrong reason. Freezing `supply-chain-ops-assistant`'s
+`02-adjust-inventory-action` found the check wrong in both directions at once.
+
+**False positive.** It matched bare `^ERROR`, which also matches a *captured log
+record*: pytest's default log format is `%(levelname)-8s %(name)s:%(file)s:
+%(line)d`, so a handler logging at ERROR level under a failing test prints
+`ERROR    pkg.mod:mod.py:474 …`. That refused the freeze of a correctly-red
+oracle whose code under test logs an error — which is normal behaviour, and in
+this case was the behaviour the oracle asserted. The discriminator is now the
+subject's **shape**: a collection error names a location (`::` or ending `.py`),
+a log record names a logger. Not padding — `log_format` is configurable and the
+shape is not.
+
+**False negative, and the more serious one.** The check sat *inside* the
+node-id-capture branch, so it ran only when node-ids were parsed from the
+output. A module that fails to import produces none — meaning the run where
+**nothing executed at all** was the one run the check never inspected. Case 27
+had pinned the check since it was written, on a fixture whose `ERROR` line
+happened to carry a node-id; that made the check reachable and the hole
+invisible. This is exactly the "passes for the wrong reason" class this suite's
+own header warns about, found again in the check that class was written for. The
+check is now hoisted out and runs at every evidence tier.
+
+Cases 27b (a log record must not read as a collection error) and 27c (a
+collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
+Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
+check under node-id capture reddens 27 and 27c.
+
 ## 2026-08-03 — remediating the first skill review
 
 An independent review of the skill after the first full feature (2026-08-02)
