@@ -276,6 +276,24 @@ Everything below is for `small` and `standard` chunks.
    exists to remove.
    - **Goal** *(human judgement)* — one paragraph, states the user-visible
      outcome.
+
+     *If the goal names a human control* — a confirmation gate, an approval
+     step, a review screen, anything whose point is that a person decides —
+     at least one criterion must be about **the information available at that
+     control**, not only about the correctness of what reaches it. Binary
+     criteria are good at "is the computed thing correct" and structurally
+     blind to "can the human do their job with what they are shown", and the
+     second is the whole purpose of a control.
+
+     Worked example: a criterion read "the targets are exactly the rows
+     carrying an inventory id", and was satisfied precisely — targeting was
+     correct. The gate was still unusable. A query over 50 rows produced 50
+     targets, the confirmation panel showed opaque `INV-…` ids, and no surface
+     rendered the human-meaningful field at all, so an operator could not tell
+     which items a 50-record mutation touched. The feature's stated goal named
+     "a human confirmation gate" as its core safety property and no criterion
+     ever asked whether a human could exercise it (2026-08-04,
+     supply-chain-ops-assistant, 02-adjust-inventory-action).
    - **Acceptance criteria** *(human judgement)* — each one binary and
      mechanically checkable. "Improve the error message" fails this gate;
      "`discover` with zero sources exits 2 and prints the registration hint"
@@ -284,6 +302,26 @@ Everything below is for `small` and `standard` chunks.
      `Source:` line: an untraceable one is invented or reveals a hole upstream,
      and one traced to an `implementation` document is the ADR-as-criterion
      defect from question 1.
+
+     *If a criterion quantifies over sides* — "on **both** sides", "all
+     call sites", "in lockstep", "together, or on neither" — rewrite it to
+     state the **invariant as an outcome**, and list the sides as examples
+     marked explicitly non-exhaustive. An enumeration is checkable only against
+     itself: it can be satisfied exactly as written while the property it was
+     meant to protect is false. An outcome — *"no path reaches a write without
+     passing the confirmation gate"* — is checkable against paths the author
+     did not think of, which is the only kind of check that can catch a side
+     you forgot.
+
+     This is not pedantry about wording; it decides what Track V is permitted
+     to find. A criterion reading "handles X on both sides, the validator and
+     the dispatcher" named two of three sides. The risk floor was the third, it
+     was in no enumeration, and so nothing in spec, plan or oracle ever asked
+     about it — both named sides were wired correctly, the criterion passed, and
+     the outcome was an unattended mutation path. Under that wording, a Track V
+     that went looking at the third side would have read as exceeding the spec
+     rather than fulfilling it (2026-08-04, supply-chain-ops-assistant,
+     02-adjust-inventory-action).
    - **Declared scope** *(enforced: `scope_paths` non-empty and equal to the
      spec's `scope` block)* — the file paths implementation may touch. Missing
      or "wherever needed" fails the gate.

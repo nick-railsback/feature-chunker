@@ -38,6 +38,36 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — two things a binary criterion is structurally bad at
+
+Both land as sub-rules under the spec gate's two *judgement* bullets rather than
+as new peer bullets. That file argues, correctly, that five bullets reading as
+equally enforced when only three are is the drift the harness exists to remove;
+adding two more unenforced ones would have made the argument and broken it in
+the same edit.
+
+**Enumerated sides are checkable only against themselves.** A criterion read
+"handles `INV-` targets on **both** sides, the validator and the dispatcher."
+There were three. The risk floor was the third, it was in no enumeration, and
+nothing in spec, plan or oracle ever asked about it — both named sides were
+wired correctly, the criterion was satisfied exactly as written, and the outcome
+was an unattended mutation path. A criterion quantifying over sides now states
+the invariant as an *outcome* and lists the sides as explicitly non-exhaustive
+examples. That is not a wording preference: under the old phrasing, a Track V
+that went looking at an unnamed third side would have read as exceeding the spec
+rather than fulfilling it.
+
+**Binary criteria are blind to reviewability.** "The targets are exactly the
+rows carrying an inventory id" was satisfied precisely — and the gate it fed was
+unusable, because 50 targets rendered as 50 opaque ids with no surface showing
+the human-meaningful field. The feature's stated goal named "a human
+confirmation gate" as its core safety property, and no criterion asked whether a
+human could exercise it. When a goal names a human control, at least one
+criterion is now about the information available *at* that control, not only the
+correctness of what reaches it.
+
+Earned 2026-08-04, supply-chain-ops-assistant 02-adjust-inventory-action.
+
 ## 2026-08-04 — two oracle classes from one defect the oracle already ran
 
 The worst defect this harness has shipped was executed by its own oracle, in a
