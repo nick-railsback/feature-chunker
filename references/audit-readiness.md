@@ -293,6 +293,29 @@ Everything below is for `small` and `standard` chunks.
    - **Size class** *(enforced: one of `trivial` / `small` / `standard`, and
      equal to the spec's `size-class` block)* — assigned honestly.
 
+   **Then name the consumers of every shared symbol the declared scope
+   touches.** *(human judgement)* A module-global, an exported function, a
+   shared regex or constant, a config key — anything read from outside the file
+   that defines it. Write the answer down: who else reads this, and what would
+   break for them if its meaning widened? The list is what Track V turns into
+   preservation assertions (`references/plan.md` § The standing brief).
+
+   This is judgement rather than a script check because *what a caller is* is a
+   per-repo question — a grep for a Python symbol, a JSON key, a shell variable
+   and a CSS class are four different greps, and a generic one would be either
+   useless or a source of false confidence. Naming that openly is better than a
+   check that looks mechanical and is not.
+
+   **Scope discipline does not cover this, and tightening scope will not fix
+   it.** Declared scope governs which files may change; it says nothing about
+   which behaviors must be preserved. The two are different questions, and the
+   harness asked only one until a chunk with a perfectly clean four-file diff
+   widened a shared entity-id regex and emptied the target list for every other
+   action type that read it. The diff was exactly the declared paths; the blast
+   radius was the whole module (2026-08-04, supply-chain-ops-assistant,
+   02-adjust-inventory-action). Do not respond to this by loosening scope —
+   respond by writing the consumer list.
+
    **Then read `CANDIDATES.md` § Open and name any entry whose shape matches
    this chunk.** *(human judgement)* The ledger is what the evidence base
    already knows about chunks like this one, and until now it had a write path

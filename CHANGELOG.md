@@ -38,6 +38,42 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — who else reads this symbol? (the seam sweep, finally)
+
+The oldest open entry in `CANDIDATES.md`, closed on its fourth sighting — the
+one that shipped a regression.
+
+A chunk widened a shared module-global entity-id regex so it would match a new
+entity prefix. Its scope discipline was perfect: four files, exactly the declared
+paths, no creep, `verify` clean. All 13 acceptance criteria concerned the new
+entity. All 51 oracle assertions concerned the new entity. Four other action
+types read that same regex, and the widened match silently emptied their target
+lists — a query naming an inventory id returned no shipments where the same
+query without it returned two.
+
+The sentence this earns: **declared scope governs which files may change, never
+which behaviors must be preserved.** Scope makes a diff reviewable. It says
+nothing about blast radius. The harness had been asking one of those questions
+and reading the answer as though it covered both. Do not fix this by loosening
+scope — scope discipline was the part that worked.
+
+Two changes, both human judgement and marked as such. `audit-readiness` § step 3
+names the consumers of every shared symbol the declared scope touches, and asks
+what would break for them if its meaning widened. `plan.md` § The standing brief
+gains a fifth class: an oracle for such a chunk carries at least one
+*preservation* assertion per consumer class — not "the new behavior is right"
+but "what was true for the existing callers still is." That is the one assertion
+a spec-shaped blind spot cannot delete, because it is not derived from what the
+chunk is adding.
+
+**Why not a check.** A fifth fenced `consumers` block in `spec.md`, reconciled
+like the other four, was considered and rejected: it can verify the list was
+filled in, never that it is complete, and a consumer nobody thought of is what
+produced all four sightings. `CANDIDATES.md` records the rejection with its
+reasoning. This fix is a prediction rather than a guard, by this skill's own
+standard — what changed is that occurrence five will announce itself at every
+chunk close instead of waiting to be re-read.
+
 ## 2026-08-04 — the candidates ledger gets a read path
 
 An independent review of the `inventory-action` feature found ten defects on a

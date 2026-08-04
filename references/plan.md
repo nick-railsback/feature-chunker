@@ -122,10 +122,11 @@ The subagent's brief:
 
 ### The standing brief — failure classes, keyed on the oracle's shape
 
-Four classes of oracle defect have recurred often enough to brief against.
-They are keyed on **conditions** — properties of the oracle being written —
-not run as a flat checklist: each applies only when the shape it names is
-present, and an oracle with none of these shapes owes none of them. Include
+Five classes of oracle defect have recurred often enough to brief against.
+They are keyed on **conditions** — properties of the oracle being written, or
+of what it has to encode — not run as a flat checklist: each applies only when
+the shape it names is present, and an oracle with none of these shapes owes
+none of them. Include
 the matching ones in the subagent's brief. (The first run of this brief,
 assembled ad hoc for one prose-heavy chunk, produced an oracle that hit zero
 of the classes the evidence base had accumulated — the incident→case→fix
@@ -177,6 +178,29 @@ loop, compounding. This section is that brief made standing.)
   check gets the same treatment. An independent whole-diff review of the first
   full feature found three shipped checkers with exactly this defect, all
   through gate-approved chunks whose oracles fed them only valid input.
+- **If the chunk modifies a symbol with consumers outside its declared scope**
+  — a module-global, an exported function, a shared regex or constant, a config
+  key: carry at least one **preservation** assertion per consumer class. Not
+  "the new behavior is right" but "the behavior that was there before still
+  holds for the callers that were already there." The spec gate names the
+  consumers (`references/audit-readiness.md` § step 3); this is where they
+  become assertions.
+
+  The distinction this class exists for: **declared scope governs which files
+  may change, never which behaviors must be preserved.** Scope makes a diff
+  reviewable and says nothing about blast radius. A chunk can hold its scope
+  perfectly and still change what a symbol means for every caller it did not
+  think about — which is what happened: a shared entity-id regex was widened to
+  match a new prefix, all 13 criteria and all 51 assertions concerned the new
+  entity, none concerned the four other action types reading the same regex,
+  and the widened match silently emptied their target lists. The oracle was
+  100% new-behavior and 0% existing-behavior-preserved, and nothing in spec,
+  plan or oracle asked who else read the symbol (2026-08-04,
+  supply-chain-ops-assistant 02-adjust-inventory-action).
+
+  A preservation assertion is cheap, and it is the one assertion in the oracle
+  that a spec-shaped blind spot cannot delete — because it is not derived from
+  what the chunk is adding.
 
 **What it returns:** the red run's output and a one-paragraph summary of what
 it asserted — **not** the test source. The parent's window carries the minimum

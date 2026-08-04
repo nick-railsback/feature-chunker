@@ -58,33 +58,6 @@ at the incident: a record-only suite run in `gate` when closing a bypassed
 chunk — record, never gate, same proportionality posture as `bypass_suite`.
 One incident; second one builds it.
 
-### Cross-chunk caller/seam sweep at spec time or Track V
-
-Status: open · Occurrences: 4 · Last: 2026-08-04 supply-chain-ops-assistant 02-adjust-inventory-action
-
-When a spec declares scope over a function, flag, or file, nothing asks who
-else consumes it. Three occurrences of the class in one feature, each via a
-different mechanism: a sibling chunk's oracle hash-pinned a doc section this
-chunk's spec needed to edit (2026-07-31, skill-engine, chunk 17); a second
-consumer of a test-harness flag sat outside the declared scope until
-mid-implement (2026-08-02, skill-engine, chunk 21); and the post-feature
-audit found three shipped defects where every gate globbed one tree while
-the consuming tree sat outside all of them. **By the second-occurrence rule
-this is overdue for a mechanism** — it is still here because the mechanical
-shape is genuinely undecided (a generic "grep for callers" needs to know what
-a caller is, per repo). What exists now: `feature-close` (2026-08-03) catches
-the class at feature scope; the per-chunk sweep — audit-readiness or Track V
-grepping the repo for other users of everything the spec declares scope over
-— is the open design. Chunk 21's chafe line names it.
-
-**Fourth occurrence, and the one that cost something** (2026-08-04,
-supply-chain-ops-assistant, 02-adjust-inventory-action): widening a
-module-global entity-id regex for a new entity emptied the target list for
-every other action type — a shared symbol with consumers across every action,
-modified by a chunk whose 13 criteria and 51 assertions were all about the new
-one. The entry describing this defect was already sitting in this file, marked
-overdue, when the chunk was planned. Nothing read it.
-
 ### Recovery path for blockers discovered post-green
 
 Status: open · Occurrences: 1 · Last: 2026-07-31 skill-engine 17-status-decay-visibility
@@ -121,6 +94,44 @@ chunk/stage/size from each `state.json` — `print_handoff` already walks
 siblings, so the design is mostly there. Its known limit is the same one
 `print_handoff` documents: it can only see *stamped* chunks, so it
 supplements the queue table rather than replacing it.
+
+## Landed
+
+### Cross-chunk caller/seam sweep at spec time or Track V
+
+Status: landed · Occurrences: 4 · Last: 2026-08-04 supply-chain-ops-assistant 02-adjust-inventory-action
+
+The longest-open entry in this file and the most expensive. When a spec declared
+scope over a function, flag, or file, nothing asked who else consumed it. Four
+sightings, each through a different mechanism: a sibling chunk's oracle
+hash-pinned a doc section this chunk's spec needed to edit (2026-07-31,
+skill-engine, chunk 17); a second consumer of a test-harness flag sat outside
+the declared scope until mid-implement (2026-08-02, skill-engine, chunk 21); a
+post-feature audit found three shipped defects where every gate globbed one tree
+while the consuming tree sat outside all of them; and finally, one day after
+this entry was written down and marked overdue, a chunk widened a module-global
+entity-id regex and emptied the target list for every other action type
+(2026-08-04, supply-chain-ops-assistant, 02-adjust-inventory-action).
+
+**Landed as judgement, not as a check**, in two places: `audit-readiness`
+§ step 3 names the consumers of every shared symbol the scope touches, and
+`plan.md` § The standing brief turns that list into one preservation assertion
+per consumer class.
+
+**What was considered and rejected**: a fifth fenced `consumers` block in
+`spec.md`, reconciled against a new `state.json` key exactly like `scope`,
+`test-paths` and `size-class`. It would have made the list enforceable — the
+human decides what a caller is, sidestepping the per-repo problem that kept this
+entry open — at the cost of a fifth value to keep in step across two files, and
+a check that can only ever verify the list was *filled in*, never that it is
+*complete*. The gap that produced all four sightings is a consumer nobody
+thought of, which is exactly what a filled-in block does not catch.
+
+The honest reading, since this skill's own doctrine is that a documented failure
+mode with no mechanism behind it is a prediction rather than a guard: this fix
+is a prediction. What changed is that the next sighting is loud — the escalation
+warning added the same day means occurrence five announces itself at every chunk
+close instead of waiting for someone to re-read this file.
 
 ## Landed by the 2026-08-03 remediation — do not re-propose
 
