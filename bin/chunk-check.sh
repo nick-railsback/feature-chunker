@@ -59,6 +59,17 @@ hash_file() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
+# CANDIDATES.md ships WITH the skill — unlike the field log, which is
+# machine-local by design — so it is found relative to this script rather than
+# to the repo under test, and resolved here, before the cd to the repo root
+# below. Both install shapes work: a symlinked skill directory resolves through
+# to the real file, and a copied one carries its own.
+# CHUNK_CHECK_CANDIDATES overrides it; that exists for the fixture suite, which
+# must assert on a ledger it controls rather than on whatever this repo's real
+# one happens to say today.
+SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" || SKILL_ROOT=""
+CANDIDATES_FILE="${CHUNK_CHECK_CANDIDATES:-${SKILL_ROOT:+$SKILL_ROOT/CANDIDATES.md}}"
+
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 CHUNK_DIR="$(cd "$CHUNK_ARG" 2>/dev/null && pwd)" || die "chunk dir not found: $CHUNK_ARG"
 case "$CHUNK_DIR" in "$REPO_ROOT"/*) ;; *) die "chunk dir must be inside the repo";; esac
@@ -479,6 +490,40 @@ scan_field_log() { # scan_field_log <log-path>
   FL_PLACEHOLDERS="$(printf '%s\n' "$scanned" \
     | awk -F'\t' '$1=="PLACEHOLDER"{p = p (p ? ", " : "") $2} END{print p}')"
   [ -n "$FL_LINE" ]
+}
+
+# --- the candidates ledger --------------------------------------------------
+# CANDIDATES.md's escalation rule — "second incident in a class → mechanism, in
+# that session" — was prose with no reader for exactly one day before it was
+# violated in writing: the cross-chunk seam entry sat `open` at three sightings,
+# annotated "overdue for a mechanism", while the class it describes shipped two
+# regressions two days later. Three chunks had logged the class through three
+# different mechanisms. The log was working; the loop was open.
+#
+# So the ledger gets a read path. Each entry carries a machine-readable line
+# (`Status: open · Occurrences: N · Last: …`) and this prints the ones that have
+# reached the escalation threshold. It runs at `log`, which is where the retro is
+# being written and the counts are being updated anyway.
+#
+# It warns and never fails. A mechanism cannot be built mid-chunk, and a gate
+# that blocks a chunk over a maintainer's backlog is the disproportion
+# non-negotiable #7 exists to prevent. What it removes is the dependence on
+# someone happening to re-read the file.
+candidates_overdue() { # candidates_overdue <ledger-path> — "<N>\t<title>" per overdue entry
+  [ -f "$1" ] || return 0
+  awk '
+    /^###[ \t]/ { title = $0; sub(/^###[ \t]+/, "", title); next }
+    /^Status:/ {
+      st = ""; occ = 0
+      if (match($0, /Status:[ \t]*[a-z]+/)) {
+        st = substr($0, RSTART, RLENGTH); sub(/Status:[ \t]*/, "", st)
+      }
+      if (match($0, /Occurrences:[ \t]*[0-9]+/)) {
+        occ = substr($0, RSTART, RLENGTH); sub(/Occurrences:[ \t]*/, "", occ); occ = occ + 0
+      }
+      if (st == "open" && occ >= 2 && title != "") print occ "\t" title
+    }
+  ' "$1"
 }
 
 # --- reconciliation: declared intent vs what git is actually doing ----------
@@ -1301,6 +1346,17 @@ log)
           info "  $FL_LINE"
           info "the review gate will re-read this file rather than trust the record"
           info "demotion streak: $(field_log_streak "$log_path") consecutive clean gated chunk(s) — adjust/reject reset it, gate:none excluded; the rule and its n live in the log's header"
+          overdue="$(candidates_overdue "$CANDIDATES_FILE")"
+          if [ -n "$overdue" ]; then
+            warn "the feature-chunker skill has open candidate(s) at 2+ occurrences —"
+            warn "  its own escalation rule says the second incident builds the mechanism:"
+            printf '%s\n' "$overdue" | while IFS="$(printf '\t')" read -r n title; do
+              warn "  · $title ($n sightings)"
+            done
+            warn "  These are gaps in the skill, not in this repo. If this chunk's chafe line is"
+            warn "  another sighting of one of them, raise its Occurrences in ${CANDIDATES_FILE:-CANDIDATES.md}"
+            warn "  and build the fix while the incident is still in the window."
+          fi
         fi
       fi
     fi

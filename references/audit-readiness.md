@@ -293,6 +293,22 @@ Everything below is for `small` and `standard` chunks.
    - **Size class** *(enforced: one of `trivial` / `small` / `standard`, and
      equal to the spec's `size-class` block)* — assigned honestly.
 
+   **Then read `CANDIDATES.md` § Open and name any entry whose shape matches
+   this chunk.** *(human judgement)* The ledger is what the evidence base
+   already knows about chunks like this one, and until now it had a write path
+   and no read path: entries accumulated, and were surfaced only if someone
+   happened to re-read the file. An entry that matches is not a blocker — it is
+   a known gap in the harness, and knowing which one applies here tells the spec
+   and Track V where to look. `chunk-check.sh log` warns about entries that have
+   reached the escalation threshold, but that fires at the *end* of a chunk;
+   this is the same evidence at the only moment it can still change the spec.
+
+   Concretely, on the chunk this rule was earned by: "Cross-chunk caller/seam
+   sweep" was sitting open at three sightings, marked overdue, and the chunk
+   about to be specified widened a shared regex. Reading the ledger here would
+   have put the question — *who else consumes this?* — in front of the spec
+   author before any criterion was written.
+
 ## The spec contract — why four fields are written twice
 
 `spec.md` is what a human reads before approving. `state.json` is what

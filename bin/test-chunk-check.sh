@@ -156,6 +156,15 @@ chunk_check_home() { # chunk_check_home <repo_dir> <home> <op> [args...]
   ( cd "$repo_dir" && HOME="$home" bash "$CHECK" "$op" "$CHUNK" "$@" )
 }
 
+# Same, with the candidates ledger overridden. The escalation warning has to be
+# asserted against a ledger this suite controls: pointed at the real
+# CANDIDATES.md the cases would pass or fail depending on what the maintainer's
+# backlog happens to say today, which is a test of the wrong thing.
+chunk_check_cand() { # chunk_check_cand <repo_dir> <ledger> <op> [args...]
+  local repo_dir="$1" ledger="$2" op="$3"; shift 3
+  ( cd "$repo_dir" && CHUNK_CHECK_CANDIDATES="$ledger" bash "$CHECK" "$op" "$CHUNK" "$@" )
+}
+
 state_get() { # state_get <repo_dir> <jq filter>
   jq -r "$2" "$1/$CHUNK/state.json"
 }
@@ -1585,6 +1594,63 @@ write_field_log "$d" \
   "$(log_line "$d" approve 01-x)"
 out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"
 assert_contains "67 reject resets the streak too" "$out" "demotion streak: 1"
+
+# 69 — the candidates ledger's escalation rule, read rather than remembered.
+#      CANDIDATES.md says "second incident in a class -> mechanism, in that
+#      session" and had no reader: an entry sat open at three sightings,
+#      annotated overdue, while its class shipped two regressions two days
+#      later (2026-08-04, supply-chain-ops-assistant). `log` now prints the
+#      entries that have reached the threshold. It warns and never fails —
+#      a maintainer's backlog must not block someone else's chunk.
+d="$(new_fixture case69)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" verify
+write_field_log "$d" "$(log_line "$d" approve 01-x)"
+fl="$(field_log_path "$d")"
+
+ledger="$FIXROOT/case69-overdue.md"
+printf '%s\n' \
+  '## Open' \
+  '' \
+  '### Cross-chunk caller sweep' \
+  '' \
+  'Status: open · Occurrences: 3 · Last: 2026-08-02 skill-engine 21-eval-runs' \
+  '' \
+  'prose about the class.' \
+  '' \
+  '### Something seen once' \
+  '' \
+  'Status: open · Occurrences: 1 · Last: 2026-07-30 skill-engine 05-repo-claude-md' \
+  '' \
+  'prose.' > "$ledger"
+out="$(chunk_check_cand "$d" "$ledger" log --log-path "$fl" 2>&1)"; rc=$?
+assert_eq "69 an overdue candidate does not fail the op" "$rc" "0"
+assert_contains "69 the overdue entry is named"        "$out" "Cross-chunk caller sweep"
+assert_contains "69 with its sighting count"           "$out" "(3 sightings)"
+assert_contains "69 said to be about the skill, not this repo" "$out" "not in this repo"
+assert_absent   "69 an entry seen once is below the threshold" "$out" "Something seen once"
+
+ledger="$FIXROOT/case69-quiet.md"
+printf '%s\n' \
+  '## Open' \
+  '' \
+  '### Seen once' \
+  '' \
+  'Status: open · Occurrences: 1 · Last: 2026-07-30 skill-engine 05-repo-claude-md' \
+  '' \
+  '## Landed' \
+  '' \
+  '### Already built' \
+  '' \
+  'Status: landed · Occurrences: 4 · Last: 2026-08-03 skill-engine 24-dogfood' > "$ledger"
+out="$(chunk_check_cand "$d" "$ledger" log --log-path "$fl" 2>&1)"
+assert_absent "69 nothing overdue: no warning at all" "$out" "escalation rule"
+assert_absent "69 a landed entry never warns, whatever its count" "$out" "Already built"
+
+out="$(chunk_check_cand "$d" "$FIXROOT/case69-absent.md" log --log-path "$fl" 2>&1)"; rc=$?
+assert_eq     "69 a missing ledger is silent, not an error" "$rc" "0"
+assert_absent "69 and prints no escalation warning"         "$out" "escalation rule"
 
 # --- summary ---------------------------------------------------------------
 

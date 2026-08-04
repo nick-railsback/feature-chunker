@@ -38,6 +38,42 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — the candidates ledger gets a read path
+
+An independent review of the `inventory-action` feature found ten defects on a
+branch where every gate was green (2026-08-04, supply-chain-ops-assistant,
+chunks 01 and 02). The highest-leverage finding was not about any chunk. It was
+about this repo.
+
+`CANDIDATES.md` shipped 2026-08-03 carrying an entry, "Cross-chunk caller/seam
+sweep at spec time or Track V", at three sightings, annotated in its own words
+**"overdue for a mechanism"** under the escalation rule at the top of the same
+file. One day later a chunk widened a shared module-global regex; the change
+emptied the target list for every other consumer of it. That is the entry's
+class exactly, and the entry was already written down when the chunk was
+specified. Nothing read it.
+
+So the ledger was never the problem — the write path worked three times. A
+ledger nothing reads is a diary, and the escalation rule was prose depending on
+someone happening to re-open the file.
+
+Every entry now carries `Status: open|landed · Occurrences: N · Last: <date>
+<repo> <chunk>`, and `chunk-check.sh log` prints the open entries that have
+reached two sightings, at every chunk close, until they are built or rejected.
+It warns and never fails: a mechanism cannot be built mid-chunk, and blocking
+someone's chunk over a maintainer's backlog is the disproportion
+non-negotiable #7 exists to prevent.
+
+The counting is the other half, and it is prose because it is judgement:
+`audit-implementation`'s retro reconciles each chafe line against the ledger, so
+three sightings of one class become the number `3` rather than three unconnected
+sentences in a 200-line log. `audit-readiness` reads the open entries while the
+spec can still change, which is the only moment the knowledge is worth anything.
+
+Case 69 in `bin/test-chunk-check.sh` (250). Mutation-tested three ways: deleting
+the warning block, dropping the threshold to one sighting, and dropping the
+open/landed discriminator each turn the suite red.
+
 ## 2026-08-04 — context packs: the chunk-time edit is a scratch capture
 
 `audit-implementation`'s refresh rule tells the chunk that changed what a pack

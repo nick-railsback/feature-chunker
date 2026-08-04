@@ -192,7 +192,11 @@ prose asking anyone to be careful.
   not approved → stage `verified`. Refuses on any bypassed chunk: no freeze
   happened, so there is nothing here to check and the review gate is its exit
 - `log` — the retro's field-log line is really in the log file, carries a legal
-  `gate:` verdict and has no field left as `?` → record it in `state.json`
+  `gate:` verdict and has no field left as `?` → record it in `state.json`. It
+  also reads `CANDIDATES.md` and warns while any open entry has reached two
+  sightings, which is that file's own threshold for building the mechanism — a
+  ledger with a write path and no read path is a diary, and the class that
+  proved it shipped two regressions from an entry that already said "overdue"
 - `gate <verdict>` — record the human's review verdict; from `verified` or
   `bypassed` only → `done`, back to `approved`, or `blocked`. `approved`
   re-reads the field log and refuses without the entry, then **hands off**: it

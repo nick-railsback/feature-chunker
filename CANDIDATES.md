@@ -20,9 +20,32 @@ Each entry cites its field-log evidence as `(date, repo, chunk)`. The field
 log is machine-local and does not travel with the repo; the citations here
 are the durable pointers into it.
 
+**Every entry carries a `Status:` line, and `chunk-check.sh log` reads it.**
+The rule above was prose for one day and was violated in writing: the seam-sweep
+entry sat `open` at three occurrences, self-marked overdue, while the class it
+names shipped two regressions two days later. A ledger with a write path and no
+read path is a diary. The line is the read path:
+
+```
+Status: open · Occurrences: N · Last: <date> <repo> <chunk>
+```
+
+`Status:` is `open` or `landed`. `Occurrences:` counts *sightings of the class*,
+not entries — three chunks logging the same collision through three different
+mechanisms is three. `Last:` is the most recent one, in field-log citation form.
+When a retro's `chafe:` line matches an open entry, the count goes up here; when
+it matches nothing and is maintainer-sized, it becomes a new entry.
+
+`log` warns at every chunk close while any open entry stands at `Occurrences: 2`
+or more. It never blocks — you cannot build a mechanism mid-chunk, and
+non-negotiable #7 is proportionality — but the escalation rule stops depending on
+someone happening to re-read this file.
+
 ## Open
 
 ### Bypass runs no suite after the work
+
+Status: open · Occurrences: 1 · Last: 2026-07-30 skill-engine 05-repo-claude-md
 
 `bypass` runs `suite_cmd` *before* the work and records `bypass_suite`;
 nothing runs it after. `verify` refuses bypassed chunks (correctly — no
@@ -36,6 +59,8 @@ chunk — record, never gate, same proportionality posture as `bypass_suite`.
 One incident; second one builds it.
 
 ### Cross-chunk caller/seam sweep at spec time or Track V
+
+Status: open · Occurrences: 4 · Last: 2026-08-04 supply-chain-ops-assistant 02-adjust-inventory-action
 
 When a spec declares scope over a function, flag, or file, nothing asks who
 else consumes it. Three occurrences of the class in one feature, each via a
@@ -52,7 +77,17 @@ the class at feature scope; the per-chunk sweep — audit-readiness or Track V
 grepping the repo for other users of everything the spec declares scope over
 — is the open design. Chunk 21's chafe line names it.
 
+**Fourth occurrence, and the one that cost something** (2026-08-04,
+supply-chain-ops-assistant, 02-adjust-inventory-action): widening a
+module-global entity-id regex for a new entity emptied the target list for
+every other action type — a shared symbol with consumers across every action,
+modified by a chunk whose 13 criteria and 51 assertions were all about the new
+one. The entry describing this defect was already sitting in this file, marked
+overdue, when the chunk was planned. Nothing read it.
+
 ### Recovery path for blockers discovered post-green
+
+Status: open · Occurrences: 1 · Last: 2026-07-31 skill-engine 17-status-decay-visibility
 
 A blocker found after the oracle is green and the plan approved (chunk 17's
 cross-chunk collision) fits neither `block` (the work is not stopping) nor
@@ -63,6 +98,8 @@ implement.md rule 8 now covers the oracle-bug variant of late discovery.
 
 ### `deviate` op for bypassed chunks
 
+Status: open · Occurrences: 1 · Last: 2026-07-30 skill-engine 06-pre-commit-template-fix
+
 A bypassed chunk has no `plan.md`, so its deviations have nowhere to live
 except a hand-edit of the script-managed `state.json` — the one field
 recording what the work did beyond its description is written by convention
@@ -72,6 +109,8 @@ records the actual paths at gate time, which covers most of what a deviation
 note would say.
 
 ### `feature status` op — render the queue from state.json
+
+Status: open · Occurrences: 1 · Last: 2026-08-02 skill-engine (skill review F4)
 
 `feature.md`'s queue table is dual bookkeeping nothing checks (the script
 parses no markdown by design), and rows drift (one sat at `ready` for two
