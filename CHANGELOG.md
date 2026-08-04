@@ -38,6 +38,41 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — two oracle classes from one defect the oracle already ran
+
+The worst defect this harness has shipped was executed by its own oracle, in a
+test written correctly, blind, from the spec. Two classes come out of it, both
+two paragraphs of Track V brief, and between them they cover it twice.
+
+**A bypass-flag test needs a no-flag sibling.** A test named for the property
+"what the validator admits is what the dispatcher routes" drove exactly the path
+that became unguarded — and passed `confirmed=True` to get there, because
+otherwise the confirmation gate stopped it. The flag that let the test reach its
+assertion is the flag that made the defect invisible. Any test passing
+`confirmed=`, `force=`, `skip_validation=` or an equivalent has, by
+construction, blinded itself to whatever that flag disables; it now owes a
+sibling asserting the control fires when the flag is absent.
+
+**A semantic class needs its mechanisms enumerated.** The criterion said "no
+inventory adjustment grades `low`" — semantic. The code keyed on
+`action_type in {…, ADJUST_INVENTORY}` — syntactic. All 15 parametrized cases
+constructed proposals with that enum member, so the oracle asserted the narrower
+set, and a bulk update carrying an inventory target — an inventory adjustment by
+any reading of the criterion, and not an `ADJUST_INVENTORY` — went through
+unattended.
+
+That second one is the uncomfortable half, because the control that should have
+caught it is the blind oracle. Track V wrote those tests from `spec.md` with no
+plan in context, exactly as designed. **Blindness protects against anchoring on
+the plan, not against anchoring on the type system** — the author still reached
+for the codebase's enum to express a claim the spec had made about a class of
+behavior. So: enumerate the mechanisms that can produce a member of the class
+before writing the test. If the class is expressible only by naming one enum
+member, the code and the spec disagree about what the class is, and that
+disagreement is the finding.
+
+Earned 2026-08-04, supply-chain-ops-assistant 02-adjust-inventory-action.
+
 ## 2026-08-04 — who else reads this symbol? (the seam sweep, finally)
 
 The oldest open entry in `CANDIDATES.md`, closed on its fourth sighting — the
