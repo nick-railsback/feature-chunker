@@ -38,6 +38,35 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — context packs: the chunk-time edit is a scratch capture
+
+`audit-implementation`'s refresh rule tells the chunk that changed what a pack
+describes to update that pack in the session holding the diff. It was written as
+though the feature owns the pack. Often it does not: a pack may be generated and
+maintained by a separate tool with its own review gate, and editing the live pack
+directly bypasses that gate while nothing in the other tool's state records that
+it happened.
+
+Both `supply-chain-ops-assistant` chunks hit this (2026-08-04). Each found the
+pack wrong rather than merely thin — chunk 02's action-safety reference claimed
+"a new `ActionType` needs four registrations", true for a new action and wrong
+for a new entity, which needed six plus a prefix. A pack that is confidently
+wrong is worse than one with a hole, so the in-session repair is worth having.
+What it is not is a durable write.
+
+`references/feature-close.md` now names the full motion: **harvest** the
+substance into the feature-close artifact, where release time can find it;
+**restore** the live pack to what its owner last applied, running the pack's own
+validator if it ships one; **hand off** the refresh that is now owed, saying what
+it must fix that a hand-edit cannot — pinned permalinks and line ranges, since a
+feature moves line numbers throughout the files a pack cites.
+
+Restoring is frequently not byte-exact: a pack directory is often outside version
+control, so there may be no baseline to diff against, and the applied-state
+manifest this rule was earned on records hashes that match no live file. When the
+restore is a reconstruction, the artifact says so. A reconstruction described as
+a revert is a false claim about what is on disk.
+
 ## 2026-08-04 — `predict --one-pass`: a recovery that records instead of reconstructs
 
 `predict` refuses a `predictions.md` filled in one pass, verdict included —

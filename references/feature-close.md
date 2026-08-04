@@ -49,6 +49,56 @@ independent whole-diff review:
   one commit per finding — `tdd-remediation` is the example shape, not a
   dependency. What matters is that findings become tracked work rather than
   a read-once report.
+- **Context packs are harvested and then restored** — see below. This is the
+  stage that hands pack maintenance back to whatever owns it.
+
+## Context packs: harvest, then restore
+
+`audit-implementation`'s refresh rule tells the chunk that changed what a pack
+describes to update that pack in the session holding the diff. That rule is
+written as though the feature owns the pack. Often it does not: a pack may be
+generated and maintained by a separate tool with its own review gate — the
+`skill-engine` contextualizer flow (`DISCOVER`/`REFRESH` → `REVIEW` → `APPLY`)
+is the case this was earned on. Editing the live pack directly bypasses that
+gate, and nothing in the other tool's state records that it happened.
+
+So the chunk-time edit is a **scratch capture, not a durable write**: valuable
+because it is made while the diff is fresh and the reasoning is loaded, and
+wrong to leave in place. Feature-close is where it is collected and undone.
+
+1. **Harvest.** Diff each pack reference against what the owning tool last
+   applied and fold the substance into the feature-close artifact — a section
+   naming, per reference, what the feature made stale or false. This is the
+   durable record, and it lives in the repo artifact where release time can
+   find it, not inside a directory another tool will regenerate.
+2. **Restore.** Revert every in-feature edit to the live pack, so the pack is
+   again exactly what its owner last applied. Then run the pack's own validator
+   if it ships one (`verify.sh` for a contextualizer) to confirm the restore
+   left no dangling structure — a half-reverted cross-reference or table of
+   contents entry is the failure mode here.
+3. **Hand off.** State in the artifact which refresh is now owed and to whom
+   (`/skill-engine:refresh <name>`, a colleague, a regeneration script). Say
+   what the refresh must fix that a hand-edit *cannot* — pinned permalinks and
+   line ranges are the usual answer, since a feature moves line numbers
+   throughout the files a pack cites, and only a regeneration re-pins them.
+
+**Restoring is not always byte-exact, and the artifact should say so when it
+isn't.** A pack directory is frequently outside version control (a `.claude/`
+tree is commonly gitignored), so there may be no baseline to diff against and
+no way to prove the restore is exact. Its own applied-state manifest may not
+help: the one this rule was earned on records per-file hashes that do not
+correspond to the live files at all, so it detects nothing. When the restore is
+a reconstruction, name it a reconstruction — the owning tool's next refresh
+regenerates the content anyway, so an approximate restore is cheap, but a
+reconstruction described as a revert is a false claim about what is on disk.
+
+**Why not simply forbid the chunk-time edit?** Because the harvest is worth
+having, and the moment to write it down is when the diff is in front of you.
+Forbidding it moves the cost to feature-close, where whoever writes the artifact
+has to re-derive from a cumulative diff what each chunk already knew. Allowing
+it and reverting it keeps the information and returns the artifact. If the
+install's packs are not owned by another tool, none of this applies — the
+chunk-time edit is simply the update, and there is nothing to restore.
 
 ## What this stage is not
 
