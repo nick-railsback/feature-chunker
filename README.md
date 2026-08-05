@@ -178,11 +178,11 @@ an agent to be careful.
 
 | Op | Refuses to proceed unless… |
 |---|---|
-| `readiness` | `baseline_sha` resolves to a real commit; `spec.md`'s four fenced blocks equal their `state.json` counterparts **in both directions**; the declared `artifacts` mode matches what git is actually doing; `scope_paths` and `test_paths` are non-empty; `size_class` is one of three values; the baseline suite is green. Then it pins the baseline SHA and branch. |
+| `readiness` | `baseline_sha` resolves to a real commit; `spec.md`'s four fenced blocks equal their `state.json` counterparts **in both directions**; the declared `artifacts` mode matches what git is actually doing; `scope_paths` and `test_paths` are non-empty; `size_class` is one of three values; no `## Out of scope` exclusion asserts something about existing behaviour without citing a test or marking itself `(unverified)`; the baseline suite is green. Then it pins the baseline SHA and branch. |
 | `predict` | The stage is `ready`; `predictions.md`'s top half is filled and its verdict is still blank — a file filled in one pass, verdict included, is refused, because it records a gate outcome about a plan that did not yet exist. Then it stamps the top half's hash into `state.json`, noting whether a plan draft was on disk. |
 | `freeze` | The plan gate ran and returned `approve` (an `adjust` or `reject` verdict is refused outright, and an untouched `predictions.md` template is refused); the `predict` stamp exists on a `standard` chunk and any existing stamp's top half is byte-identical; all four spec blocks agree with state; `oracle_cmd` **executes with a non-zero exit**; no test reported `PASSED` in that run; no `ERROR` line appears in it. Then it hash-pins every tracked file under `test_paths` and records the red node-ids. |
 | `verify` | Every pinned test file is byte-identical; no test file was added or removed under `test_paths`; every changed path since baseline falls inside declared scope; the frozen `oracle_cmd` — **the same string** — now exits zero with every frozen red node-id reported `PASSED`; the full suite is green; no commits exist that the review gate has not approved. |
-| `log` | The chunk's field-log line is really on disk, carries the `gate:` verdict the state actually recorded (derived, so an adjusted gate cannot be logged as a clean approval), and leaves no field unanswered. It also prints the demotion streak, computed from the entries rather than hand-maintained. |
+| `log` | The chunk's field-log line is really on disk, carries the `gate:` verdict the state actually recorded (derived, so an adjusted gate cannot be logged as a clean approval), carries a legal `closed:` value, and leaves no field unanswered. It also prints the demotion streak — computed from the entries rather than hand-maintained, and counting only chunks a `feature-close` later marked `closed:clean` — and warns while any `CANDIDATES.md` entry is still open at two or more sightings. |
 | `gate <verdict>` | The stage is `verified` or `bypassed`. It cannot be used to skip the verification it is supposed to follow. |
 | `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or, with `--downgrade`, any pre-`done` stage: an over-escalation is corrected and recorded rather than ground through gates nobody needs. |
 | `block` / `status` | — (record a blocker with a required reason; print state) |
@@ -492,11 +492,13 @@ bash $SKILL/bin/chunk-check.sh freeze $CHUNK
 bash $SKILL/bin/chunk-check.sh verify $CHUNK
 
 # 5. Append the chunk's line to the field log (Write/Edit, never a shell >>),
-#    then verify and record it — this also prints the computed demotion streak:
+#    with closed:pending — feature-close resolves it later. This prints the
+#    computed demotion streak and any overdue candidate in CANDIDATES.md:
 bash $SKILL/bin/chunk-check.sh log $CHUNK
 
 # 6. Read the diff with the review packet beside it, then record the verdict.
 #    approved → done  |  changes-requested → back to implement  |  rejected → blocked
+#    On the last chunk this also names the feature-close the feature now owes.
 bash $SKILL/bin/chunk-check.sh gate $CHUNK approved
 
 # 7. You commit. The harness never does.
@@ -562,7 +564,9 @@ templates/
   feature.md  spec.md  plan.md  predictions.md  retro.md  state.json  field-log.md
 CHANGELOG.md                    # every earned change, cited to its incident
 CANDIDATES.md                   # maintainer-sized proposals, with the
-                                #   second-occurrence escalation rule
+                                #   second-occurrence escalation rule —
+                                #   read by `log`, which warns while any
+                                #   entry is open at two or more sightings
 ```
 
 The part that installs into `~/.claude/skills/` is sixteen files, ~150 KB. None
