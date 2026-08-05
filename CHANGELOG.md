@@ -38,6 +38,33 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — a missing feature-close becomes something the harness says
+
+`feature-close` was prose and optional by omission. It was also the only stage
+that caught anything on the feature this remediation comes from: two instrumented
+gates, 78 oracle assertions across two chunks and a 295-test CI-equivalent suite
+found **none** of seven correctness defects that one independent reviewer found
+in one pass. A stage with that record should not be reachable only by remembering
+it exists.
+
+When `gate approved` finds no unfinished chunk directory left under the feature,
+it now prints that a feature-close is owed, what it is, who may do it, and that
+it is what resolves every `closed:pending` in the field log. That is the last
+moment anything in the harness prints about the feature, which makes it the only
+place the absence can be named.
+
+It does not attempt to detect whether the review happened. Probing for a
+`docs/audits/` artifact would mean parsing `feature.md` for a path, and
+`chunk-check.sh` parses no markdown beyond `spec.md`'s fenced blocks and the
+field log — a design property worth more than a guess would be. The line also
+says outright that nothing checks it, because a reminder that implies enforcement
+it does not have is worse than silence. What changed is that skipping the stage
+is now a decision rather than an omission.
+
+Case 58b2 in `bin/test-chunk-check.sh` (267 → 273), including the negative half:
+a gate with a next chunk still queued must not print it, since a reminder that
+fires every chunk is one nobody reads. Mutation-tested by deleting the lines.
+
 ## 2026-08-04 — the demotion streak counts shipped quality, not gate verdicts
 
 The streak was wrong in both directions at once, which means it was not a

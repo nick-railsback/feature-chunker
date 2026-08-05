@@ -1252,6 +1252,33 @@ assert_contains "58b and points at the queue table for unstamped chunks" "$out" 
 assert_absent   "58b it never claims the queue is empty"          "$out" "queue is clear"
 assert_absent   "58b and emits no resume prompt"                  "$out" "/feature-chunker Repo:"
 
+# 58b2 — and it names the feature-close the feature now owes. That stage was
+#        prose, optional by omission, and the only thing that caught anything on
+#        the feature that earned this rule: two instrumented gates, 78 oracle
+#        assertions and a 295-test suite found none of seven correctness defects
+#        one independent reviewer found in a single pass (2026-08-04,
+#        supply-chain-ops-assistant). This is the last moment anything prints
+#        about the feature, so it is the only place its absence can be named.
+assert_contains "58b2 the owed feature-close is named at the last chunk's gate" \
+  "$out" "owes a feature-close"
+assert_contains "58b2 and says who may do it"     "$out" "did not write the chunks"
+assert_contains "58b2 and ties it to closed:pending" "$out" "closed:pending"
+assert_contains "58b2 and admits nothing checks it"  "$out" "Nothing checks this"
+
+# The line must NOT appear when there is a next chunk: a feature mid-queue owes
+# no close, and a reminder that fires every chunk is a reminder nobody reads.
+#        The sibling is stamped after verify on purpose: a chunk directory
+#        appearing mid-flight is out of declared scope and verify refuses it
+#        (case 32), so stamping it earlier would never reach the gate at all.
+d="$(new_fixture case58b2)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+mkdir -p "$d/docs/chunks/f/02-y"
+printf '{"schema_version":10,"chunk":"02-y","stage":"specified"}\n' > "$d/docs/chunks/f/02-y/state.json"
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "58b2 a mid-queue gate still names the next chunk" "$out" "next chunk: 02-y"
+assert_absent   "58b2 and does not ask for a feature-close yet"    "$out" "owes a feature-close"
+
 # 58c — skips chunks already closed. Glob order is lexicographic and the queue
 #       is numbered, so "first non-done sibling" is the next one to work on.
 d="$(new_fixture case58c)"

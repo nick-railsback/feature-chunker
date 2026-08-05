@@ -805,6 +805,24 @@ print_handoff() {
     next_msg "  That means every *stamped* chunk is done — not that the queue is empty."
     next_msg "  Chunk directories are stamped as each chunk comes up, so check the queue"
     next_msg "  table in $FEATURE_REL/feature.md for the next chunk to stamp."
+    # If the queue really is finished, this is the last moment anything prints
+    # about this feature — so it is the only place a missing feature-close can be
+    # named. The stage was prose and optional by omission, and it was also the
+    # only stage that caught anything on the feature that earned this: two
+    # instrumented gates, 78 oracle assertions and a 295-test suite found none of
+    # seven correctness defects that one independent reviewer found in one pass.
+    # Nothing here can detect whether it happened — chunk-check.sh is per-chunk by
+    # design and reads no feature-level state, and inventing a docs/audits/ probe
+    # would mean parsing feature.md for a path, which this script deliberately
+    # does not do. Naming the state is the whole intervention.
+    next_msg ""
+    next_msg "If the queue IS finished, this feature owes a feature-close: one review of"
+    next_msg "  the cumulative diff by someone who did not write the chunks, recorded as"
+    next_msg "  an artifact in the repo. See references/feature-close.md."
+    next_msg "  It is also what resolves every closed:pending in the field log — the"
+    next_msg "  demotion streak counts chunks that survived it and nothing else."
+    next_msg "  Nothing checks this. Skipping it is a decision; this line is so that it"
+    next_msg "  is a visible one rather than an accident nothing records."
     return 0
   fi
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"

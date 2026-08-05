@@ -129,3 +129,16 @@ chunk-time edit is simply the update, and there is nothing to restore.
   honest consequence is stated rather than hidden: skipping feature-close is
   a decision someone can see was made (no `docs/audits/` artifact for the
   feature), not an accident nothing records.
+
+  **What is now mechanical is the reminder, not the gate.** When `gate
+  approved` finds no unfinished chunk directory left under the feature, it
+  prints that a feature-close is owed, what it is, and that nothing checks it.
+  That is the last moment anything in the harness prints about this feature,
+  which makes it the only place its absence can be named at all.
+
+  It deliberately does **not** try to detect whether the review happened. That
+  would mean parsing `feature.md` for an artifact path, and this script parses
+  no markdown beyond `spec.md`'s fenced blocks and the field log — a stated
+  design property worth more than a guess. The stage that was optional by
+  omission is now optional by *decision*, and that was the whole ask: this was
+  the only stage that caught anything on the feature that earned the rule.
