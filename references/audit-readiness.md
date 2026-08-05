@@ -331,6 +331,29 @@ Everything below is for `small` and `standard` chunks.
    - **Size class** *(enforced: one of `trivial` / `small` / `standard`, and
      equal to the spec's `size-class` block)* — assigned honestly.
 
+   **Out-of-scope exclusions that assert facts get a citation or an
+   `(unverified)` marker.** *(enforced: `readiness` hard-fails without one)*
+   An entry under `## Out of scope` containing "already", "pre-existing",
+   "inherits", "inherited from", "unchanged from" or "existing behaviour" must
+   either cite a test in backticks or say `(unverified)` out loud.
+
+   Non-negotiable #1 puts an executable oracle behind every acceptance
+   criterion and nothing behind an exclusion — even though exclusions decide
+   what *never gets built*, which is where a wrong belief is most expensive and
+   least visible. A spec excluded a whole defect class because the new action
+   type "inherits this from every existing action type; it is pre-existing
+   behaviour". False in the way that mattered: the two sibling action types
+   each inject a field at dispatch and so are never no-ops, while the new one
+   injects nothing — making it the only one whose path is a pure no-op that
+   still reports success. The exclusion was reasoned from a false premise and
+   nothing in the harness could have noticed (2026-08-04,
+   supply-chain-ops-assistant, 01/02).
+
+   The check does not know whether the claim is true, and does not pretend to.
+   It requires the claim to be **marked**, and it fails rather than warns
+   precisely because the escape hatch is one word: where the honest fix is that
+   cheap, a warning would just accumulate.
+
    **Then name the consumers of every shared symbol the declared scope
    touches.** *(human judgement)* A module-global, an exported function, a
    shared regex or constant, a config key — anything read from outside the file

@@ -349,6 +349,88 @@ check_spec_contract() { # check_spec_contract <with-oracle:0|1>
   return 0
 }
 
+# Body of a prose section, heading to the next same-or-higher heading. Unlike
+# spec_block this reads narrative, so it stops at the next `##` rather than at a
+# fence — and deliberately does NOT stop at a nested `###`, because a
+# subsection's content still belongs to the section. (The opposite bug — an
+# extractor swallowing a nested subsection it should have left alone — cost a
+# chunk its whole plan once: 2026-07-31, skill-engine 17.)
+spec_section() { # spec_section <heading text, without the ##>
+  awk -v want="$1" '
+    /^##[ \t]/ {
+      h = $0; sub(/^##[ \t]+/, "", h)
+      gsub(/^[ \t]+|[ \t]+$/, "", h)
+      inblock = (h == want)
+      next
+    }
+    /^#[ \t]/ { inblock = 0; next }
+    inblock { print }
+  ' "$CHUNK_DIR/spec.md"
+}
+
+# § Out-of-scope exclusions carrying load-bearing factual claims.
+#
+# Non-negotiable #1 demands executable validation for acceptance criteria.
+# Exclusions get none — and they decide what NOT to build, which is where a
+# wrong belief is most expensive and least visible. A spec excluded a whole
+# class of defect on the grounds that the new action type "inherits this from
+# every existing action type; it is pre-existing behaviour". The claim was false
+# in the way that mattered: the two sibling action types each inject a field at
+# dispatch and so are never no-ops, while the new one injects nothing, making it
+# the only one whose path is a pure no-op that still reports success. The
+# exclusion was reasoned from a false premise and nothing anywhere could have
+# noticed (2026-08-04, supply-chain-ops-assistant 01/02).
+#
+# So: an exclusion that asserts something about existing behaviour must cite a
+# test or say out loud that it is unverified. The check does not demand the
+# claim be TRUE — it cannot know that. It demands the claim be MARKED, and the
+# escape hatch is one word, which is why it fails rather than warns: there is
+# always a cheap honest fix, and the cheap honest fix is the point.
+#
+# An "entry" is a bullet or a paragraph, not a line: a claim on the first line
+# of a wrapped bullet is satisfied by a citation on its second, and a citation
+# in the NEXT bullet must not excuse it.
+OOS_CLAIM_RE='already|pre-?existing|inherits|inherited from|unchanged from|existing behaviou?r'
+check_out_of_scope_claims() {
+  [ -f "$CHUNK_DIR/spec.md" ] || return 0
+  local offenders
+  offenders="$(spec_section 'Out of scope' | awk -v re="$OOS_CLAIM_RE" '
+    function flush() {
+      if (entry != "" && tolower(entry) ~ re \
+          && entry !~ /\(unverified\)/ && tolower(entry) !~ /`[^`]*test[^`]*`/) {
+        print first
+      }
+      entry = ""; first = ""
+    }
+    # An HTML comment is guidance to the author, not an exclusion, and it does
+    # not render. Skipping it is also what lets templates/spec.md carry the rule
+    # in the section the rule governs without the shipped template tripping — or,
+    # worse, quietly satisfying — its own check. Same class as an oracle
+    # grepping a tree for a string its own source has to contain
+    # (2026-07-31, skill-engine 19).
+    /<!--/                     { flush(); incomment = 1 }
+    incomment                  { if ($0 ~ /-->/) incomment = 0; next }
+    /^[ \t]*$/                 { flush(); next }
+    /^[ \t]*([-*+]|[0-9]+\.)[ \t]/ { flush() }
+    {
+      line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line ~ /^<.*>$/) next          # untouched template placeholder
+      if (first == "") first = line
+      entry = entry " " line
+    }
+    END { flush() }
+  ')"
+  [ -n "$offenders" ] || return 0
+  fail "spec.md '## Out of scope' asserts facts about existing behaviour that nothing validates:"
+  printf '%s\n' "$offenders" | sed 's/^/        /'
+  fail "  An exclusion decides what NOT to build, and it is the one part of the spec"
+  fail "  with no oracle attached. Either cite a test in backticks (\`tests/...\`,"
+  fail "  \`test_name\`) or mark the claim '(unverified)'. Marking it is a one-word"
+  fail "  fix and an honest one; being quietly wrong here is how a defect ships as a"
+  fail "  deliberate exclusion."
+  return 1
+}
+
 changed_paths() { # everything different from baseline: commits, index, tree, untracked
   local base="$1"
   { git diff --name-only "$base" HEAD 2>/dev/null
@@ -789,6 +871,7 @@ readiness)
 
   # --- read-only reconciliation: runs in both modes -----------------------
   check_spec_contract 0
+  check_out_of_scope_claims
 
   base="$(jget '.baseline_sha // empty')"
   if [ -n "$base" ]; then

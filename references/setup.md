@@ -117,8 +117,8 @@ argument surface in one place.
 
 | Invocation | Legal from | Effect |
 |---|---|---|
-| `readiness <dir>` | `specified` / `ready` / `blocked` | Full: reconcile, gate declared fields, run the baseline suite, pin `baseline_sha` + `branch`, stage `ready` |
-| `readiness <dir>` | any later stage | Reconcile-only; writes nothing |
+| `readiness <dir>` | `specified` / `ready` / `blocked` | Full: reconcile, gate declared fields, check `## Out of scope` claims, run the baseline suite, pin `baseline_sha` + `branch`, stage `ready` |
+| `readiness <dir>` | any later stage | Reconcile-only; writes nothing. The read-only checks — including the out-of-scope claim check — still run |
 | `readiness <dir> --rebaseline` | any stage | Full, **and clears the freeze**: resets `test_hashes`, `oracle_red`, `oracle_green`, `gates.plan`, `plan_approved_sha`, the `predict` stamp; the plan gate must run again. Previous baseline kept in `baseline_prev_sha` |
 | `predict <dir>` | `ready` | Stamp the filled top half of `predictions.md` into `state.json.predict` (hash, timestamp, whether `plan.md` was on disk), refusing unfilled blanks or an already-recorded verdict. Re-running replaces the stamp with a warning — legal while the plan is unread |
 | `predict <dir> --one-pass` | `ready` | The recovery for a `predictions.md` already filled in one pass. Stamps the top half as normal and records `one_pass: true` plus `verdict_at_stamp`, so the weaker claim is in the record rather than reconstructed. **Refused when the verdict is still blank** — the strong path stays the only option where it is available. `freeze` and `status` report the attested tier |

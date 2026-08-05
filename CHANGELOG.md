@@ -38,6 +38,46 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — exclusions get checked, because nothing else checks them
+
+Non-negotiable #1 puts an executable oracle behind every acceptance criterion.
+Exclusions get nothing — and an exclusion decides what *never gets built*, which
+is where a wrong belief is most expensive and least visible.
+
+A spec excluded a whole defect class on this reasoning: the new action type
+"inherits this from every existing action type; it is pre-existing behaviour."
+False in the way that mattered. The two sibling action types each inject a field
+at dispatch, so neither is ever a no-op; the new one injects nothing, making it
+the only action whose path is a pure no-op that still reports success. The
+exclusion was reasoned from a false premise, and no part of the harness could
+have noticed (2026-08-04, supply-chain-ops-assistant, chunks 01 and 02).
+
+`readiness` now reads `## Out of scope` and hard-fails on an entry asserting
+something about existing behaviour — *already, pre-existing, inherits, inherited
+from, unchanged from, existing behaviour* — unless it cites a test in backticks
+or marks itself `(unverified)`. Entries are bullets and paragraphs rather than
+lines, so a citation on the second line of a wrapped bullet counts and one in
+the *next* bullet does not.
+
+**It fails rather than warns, and the reason is the escape hatch.** The check
+cannot know whether a claim is true. It requires the claim to be *marked*, which
+makes the fix one word — and where the honest fix is that cheap, a warning would
+only accumulate.
+
+Two notes on getting it right, both earned during the change itself. The rule
+belongs in `templates/spec.md`, which puts explanatory prose *inside the section
+the checker scans* — the shipped template would trip its own check, or quietly
+satisfy it. Guidance is now an HTML comment and the checker skips comments,
+which is honest anyway: a comment is not an exclusion. And the first version of
+the test for that skip quoted the rule verbatim, marker included, so it passed
+whether or not comments were skipped. The delete-the-check trial caught it; the
+fixture now carries a claim phrase and neither escape hatch. Both are the
+skill-engine 19 class — a check whose own source contains what it looks for.
+
+Cases 70a–70g in `bin/test-chunk-check.sh` (250 → 260). Mutation-tested five
+ways: removing the call, either escape hatch, the bullet-level entry split, and
+the comment skip each turn the suite red.
+
 ## 2026-08-04 — two things a binary criterion is structurally bad at
 
 Both land as sub-rules under the spec gate's two *judgement* bullets rather than

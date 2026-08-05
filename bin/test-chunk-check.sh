@@ -1652,6 +1652,85 @@ out="$(chunk_check_cand "$d" "$FIXROOT/case69-absent.md" log --log-path "$fl" 2>
 assert_eq     "69 a missing ledger is silent, not an error" "$rc" "0"
 assert_absent "69 and prints no escalation warning"         "$out" "escalation rule"
 
+# 70 — out-of-scope exclusions that assert facts about existing behaviour.
+#      Non-negotiable #1 puts an oracle behind every acceptance criterion and
+#      nothing behind an exclusion — which is where a wrong belief is most
+#      expensive, because it decides what is never built. A spec excluded a
+#      defect class as "inherits this from every existing action type; it is
+#      pre-existing behaviour", which was false in the way that mattered
+#      (2026-08-04, supply-chain-ops-assistant). The check demands the claim be
+#      MARKED, not that it be true: cite a test, or write (unverified).
+oos() { # oos <repo_dir> <line...> — give the fixture spec an Out of scope section
+  local d="$1"; shift
+  { printf '\n%s\n\n' '## Out of scope'; printf '%s\n' "$@"; } >> "$d/$CHUNK/spec.md"
+}
+
+d="$(new_fixture case70a)"
+oos "$d" '- empty-changes proposals: `adjust_inventory` inherits this from every' \
+         '  existing action type; it is pre-existing behaviour.'
+expect "70a an unmarked claim about existing behaviour: readiness fails" \
+  1 "asserts facts about existing behaviour" -- chunk_check "$d" readiness
+expect "70a the offending exclusion is quoted back" \
+  1 "empty-changes proposals" -- chunk_check "$d" readiness
+
+# 70b — the one-word escape hatch. The check cannot know whether a claim is
+#       true; it can insist the author says which.
+d="$(new_fixture case70b)"
+oos "$d" '- empty-changes proposals: inherited from every existing action type' \
+         '  (unverified).'
+expect_absent "70b (unverified) satisfies it" "asserts facts" -- chunk_check "$d" readiness
+
+# 70c — a cited test satisfies it too, and is the stronger answer.
+d="$(new_fixture case70c)"
+oos "$d" '- empty-changes proposals: pre-existing behaviour, held by' \
+         '  `tests/dispatch/test_empty_changes.py`.'
+expect_absent "70c a backticked test citation satisfies it" "asserts facts" -- chunk_check "$d" readiness
+
+# 70d — entries are bullets, not lines. A citation in the NEXT bullet must not
+#       excuse the claim in this one, or the check reads a section top to bottom
+#       and passes on any single citation anywhere in it.
+d="$(new_fixture case70d)"
+oos "$d" '- empty-changes proposals: pre-existing behaviour.' \
+         '- batching, covered by `tests/queue/test_batch.py`.'
+expect "70d a citation in a sibling bullet does not cover this one" \
+  1 "asserts facts about existing behaviour" -- chunk_check "$d" readiness
+
+# 70e — no section, and the untouched template placeholder, are both silent.
+#       templates/spec.md ships '## Out of scope' with a <placeholder> body;
+#       a check that fired on it would fail every chunk stamped from template.
+d="$(new_fixture case70e)"
+expect_absent "70e no Out of scope section: nothing to check" "asserts facts" -- chunk_check "$d" readiness
+oos "$d" '<adjacent things this chunk deliberately does not do>'
+expect_absent "70e the template placeholder is not a claim" "asserts facts" -- chunk_check "$d" readiness
+
+# 70f — an HTML comment is guidance, not an exclusion. This is what lets
+#       templates/spec.md document the rule inside the section the rule
+#       governs. Without it the shipped template either trips its own check or
+#       -- worse, and this is how it was first written -- quietly satisfies it
+#       because the explanatory prose happens to contain the escape hatch it is
+#       describing. Same class as skill-engine 19's self-matching grep.
+#       The comment here deliberately carries a claim phrase and NEITHER escape
+#       hatch. Written the obvious way -- quoting the rule, marker and all -- it
+#       would satisfy the check whether or not comments are skipped, and pass
+#       for the wrong reason. (It was written that way first; the delete-the-
+#       check trial is what caught it.)
+d="$(new_fixture case70f)"
+oos "$d" '<!--' \
+         'Reminder: an earlier draft claimed this was pre-existing behaviour.' \
+         '-->' \
+         '- rendering the SKU column; that is chunk 03.'
+expect_absent "70f an HTML comment is not an exclusion" "asserts facts" -- chunk_check "$d" readiness
+oos "$d" '- empty-changes proposals: pre-existing behaviour.'
+expect "70f and skipping it does not swallow the entries after it" \
+  1 "asserts facts about existing behaviour" -- chunk_check "$d" readiness
+
+# 70g — the shipped template must pass its own check, whatever its guidance
+#       says. Case 39 pins the fenced blocks; this pins the prose.
+d="$(new_fixture case70g)"
+cp "$TEMPLATES/spec.md" "$d/$CHUNK/spec.md"
+expect_absent "70g the shipped template does not trip the out-of-scope check" \
+  "asserts facts" -- chunk_check "$d" readiness
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"

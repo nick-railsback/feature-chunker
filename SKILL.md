@@ -169,7 +169,11 @@ prose asking anyone to be careful.
 - `readiness` — reconcile recorded state against disk (`spec.md` against
   `state.json`, the declared `artifacts` mode against git, `branch` against
   HEAD, `baseline_sha` against history), gate the declared fields, run the
-  baseline suite → pin `baseline_sha` + `branch`, stage `ready`
+  baseline suite → pin `baseline_sha` + `branch`, stage `ready`. It also
+  refuses an `## Out of scope` exclusion that asserts something about existing
+  behaviour ("already", "pre-existing", "inherited from") without either citing
+  a test or marking itself `(unverified)` — exclusions decide what never gets
+  built and are the one part of the spec with no oracle attached
 - `predict` — stamp the filled top half of `predictions.md` into `state.json`
   while the verdict is still blank (refusing unfilled blanks and a
   pre-recorded verdict), noting whether a plan draft was on disk. This makes
