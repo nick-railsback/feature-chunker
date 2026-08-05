@@ -59,6 +59,17 @@ hash_file() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
+# CANDIDATES.md ships WITH the skill — unlike the field log, which is
+# machine-local by design — so it is found relative to this script rather than
+# to the repo under test, and resolved here, before the cd to the repo root
+# below. Both install shapes work: a symlinked skill directory resolves through
+# to the real file, and a copied one carries its own.
+# CHUNK_CHECK_CANDIDATES overrides it; that exists for the fixture suite, which
+# must assert on a ledger it controls rather than on whatever this repo's real
+# one happens to say today.
+SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" || SKILL_ROOT=""
+CANDIDATES_FILE="${CHUNK_CHECK_CANDIDATES:-${SKILL_ROOT:+$SKILL_ROOT/CANDIDATES.md}}"
+
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 CHUNK_DIR="$(cd "$CHUNK_ARG" 2>/dev/null && pwd)" || die "chunk dir not found: $CHUNK_ARG"
 case "$CHUNK_DIR" in "$REPO_ROOT"/*) ;; *) die "chunk dir must be inside the repo";; esac
@@ -338,6 +349,88 @@ check_spec_contract() { # check_spec_contract <with-oracle:0|1>
   return 0
 }
 
+# Body of a prose section, heading to the next same-or-higher heading. Unlike
+# spec_block this reads narrative, so it stops at the next `##` rather than at a
+# fence — and deliberately does NOT stop at a nested `###`, because a
+# subsection's content still belongs to the section. (The opposite bug — an
+# extractor swallowing a nested subsection it should have left alone — cost a
+# chunk its whole plan once: 2026-07-31, skill-engine 17.)
+spec_section() { # spec_section <heading text, without the ##>
+  awk -v want="$1" '
+    /^##[ \t]/ {
+      h = $0; sub(/^##[ \t]+/, "", h)
+      gsub(/^[ \t]+|[ \t]+$/, "", h)
+      inblock = (h == want)
+      next
+    }
+    /^#[ \t]/ { inblock = 0; next }
+    inblock { print }
+  ' "$CHUNK_DIR/spec.md"
+}
+
+# § Out-of-scope exclusions carrying load-bearing factual claims.
+#
+# Non-negotiable #1 demands executable validation for acceptance criteria.
+# Exclusions get none — and they decide what NOT to build, which is where a
+# wrong belief is most expensive and least visible. A spec excluded a whole
+# class of defect on the grounds that the new action type "inherits this from
+# every existing action type; it is pre-existing behaviour". The claim was false
+# in the way that mattered: the two sibling action types each inject a field at
+# dispatch and so are never no-ops, while the new one injects nothing, making it
+# the only one whose path is a pure no-op that still reports success. The
+# exclusion was reasoned from a false premise and nothing anywhere could have
+# noticed (2026-08-04, supply-chain-ops-assistant 01/02).
+#
+# So: an exclusion that asserts something about existing behaviour must cite a
+# test or say out loud that it is unverified. The check does not demand the
+# claim be TRUE — it cannot know that. It demands the claim be MARKED, and the
+# escape hatch is one word, which is why it fails rather than warns: there is
+# always a cheap honest fix, and the cheap honest fix is the point.
+#
+# An "entry" is a bullet or a paragraph, not a line: a claim on the first line
+# of a wrapped bullet is satisfied by a citation on its second, and a citation
+# in the NEXT bullet must not excuse it.
+OOS_CLAIM_RE='already|pre-?existing|inherits|inherited from|unchanged from|existing behaviou?r'
+check_out_of_scope_claims() {
+  [ -f "$CHUNK_DIR/spec.md" ] || return 0
+  local offenders
+  offenders="$(spec_section 'Out of scope' | awk -v re="$OOS_CLAIM_RE" '
+    function flush() {
+      if (entry != "" && tolower(entry) ~ re \
+          && entry !~ /\(unverified\)/ && tolower(entry) !~ /`[^`]*test[^`]*`/) {
+        print first
+      }
+      entry = ""; first = ""
+    }
+    # An HTML comment is guidance to the author, not an exclusion, and it does
+    # not render. Skipping it is also what lets templates/spec.md carry the rule
+    # in the section the rule governs without the shipped template tripping — or,
+    # worse, quietly satisfying — its own check. Same class as an oracle
+    # grepping a tree for a string its own source has to contain
+    # (2026-07-31, skill-engine 19).
+    /<!--/                     { flush(); incomment = 1 }
+    incomment                  { if ($0 ~ /-->/) incomment = 0; next }
+    /^[ \t]*$/                 { flush(); next }
+    /^[ \t]*([-*+]|[0-9]+\.)[ \t]/ { flush() }
+    {
+      line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line ~ /^<.*>$/) next          # untouched template placeholder
+      if (first == "") first = line
+      entry = entry " " line
+    }
+    END { flush() }
+  ')"
+  [ -n "$offenders" ] || return 0
+  fail "spec.md '## Out of scope' asserts facts about existing behaviour that nothing validates:"
+  printf '%s\n' "$offenders" | sed 's/^/        /'
+  fail "  An exclusion decides what NOT to build, and it is the one part of the spec"
+  fail "  with no oracle attached. Either cite a test in backticks (\`tests/...\`,"
+  fail "  \`test_name\`) or mark the claim '(unverified)'. Marking it is a one-word"
+  fail "  fix and an honest one; being quietly wrong here is how a defect ships as a"
+  fail "  deliberate exclusion."
+  return 1
+}
+
 changed_paths() { # everything different from baseline: commits, index, tree, untracked
   local base="$1"
   { git diff --name-only "$base" HEAD 2>/dev/null
@@ -376,7 +469,7 @@ resolve_log_path() {
 # Find this chunk's entry and report what is wrong with it if anything is.
 # A line belongs to this chunk when its first three pipe-separated fields are a
 # date, this repo and this chunk — the entry format's own leading columns.
-FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
+FL_LINE=""; FL_GATE=""; FL_CLOSED=""; FL_PLACEHOLDERS=""
 # The `gate:` value the field-log entry must carry, DERIVED from state rather
 # than transcribed from it. It is deliberately not `.gates.plan`: `freeze`
 # refuses the verdict `adjust` ("apply it and re-gate; freeze records approval
@@ -409,26 +502,51 @@ expected_field_log_gate() {
 # this is the arithmetic. gate:none never counts (bypassed chunks are
 # evidence about proportionality, not about the gate); adjust and reject
 # reset the run; approve and auto-pass extend it.
+#
+# § What `closed:` changed, 2026-08-04. The streak used to count a chunk the
+# moment its gate was recorded — which is before anyone but the author has read
+# the code. It was therefore wrong in both directions at once, and a number
+# wrong in both directions is not a quality measure:
+#
+#   - it UNDERCOUNTS the gate. A plan gate that prevents a defect via prose,
+#     with no `adjust` and no red→green iteration, looks identical to a gate
+#     that did nothing — and pushes the streak *toward* retiring itself.
+#   - it OVERCOUNTS the chunk. The 20th consecutive clean gated chunk, logged
+#     `oracle-caught:n(0) · scope-dev:n · gate:approve`, had shipped two
+#     regressions. Nothing in the entry is written after the code is exercised
+#     by anyone but its author, so nothing could say so.
+#
+# So a chunk now extends the streak only once it has survived a `feature-close`
+# and been marked `closed:clean`. `closed:defects(N)` resets it. `closed:pending`
+# and an absent field are *unknown* — they neither extend nor reset, because an
+# unknown is not a catch. The streak is recomputed from the file on every run, so
+# a pending entry that later becomes `defects(2)` resets it retroactively and
+# correctly.
 field_log_streak() { # field_log_streak <log-path>
   awk -F'|' '
     $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ \t]*$/ && NF >= 4 {
-      gate = ""
+      gate = ""; closed = ""
       for (i = 4; i <= NF; i++) {
         if ($i ~ /^[ \t]*chafe:/) break
         if ($i ~ /^[ \t]*gate:/) {
           gate = $i; sub(/^[ \t]*gate:/, "", gate); sub(/[ \t]+$/, "", gate)
-          break
+        }
+        if ($i ~ /^[ \t]*closed:/) {
+          closed = $i; sub(/^[ \t]*closed:/, "", closed); sub(/[ \t]+$/, "", closed)
         }
       }
       if (gate == "adjust" || gate == "reject") streak = 0
-      else if (gate == "approve" || gate == "auto-pass") streak++
+      else if (gate == "approve" || gate == "auto-pass") {
+        if (closed ~ /^defects/)   streak = 0
+        else if (closed == "clean") streak++
+      }
     }
     END { print streak + 0 }
   ' "$1"
 }
 
 scan_field_log() { # scan_field_log <log-path>
-  FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
+  FL_LINE=""; FL_GATE=""; FL_CLOSED=""; FL_PLACEHOLDERS=""
   local scanned
   scanned="$(awk -F'|' -v repo="$(basename "$REPO_ROOT")" -v chunk="$(jget '.chunk')" '
     found { next }
@@ -462,6 +580,7 @@ scan_field_log() { # scan_field_log <log-path>
           break
         }
         if ($i ~ /^gate:/) { gate = substr($i, 6); continue }
+        if ($i ~ /^closed:/) { print "CLOSED\t" substr($i, 8); continue }
         # A field whose value is empty or still "?" is a question the retro
         # never answered. freeze refuses an unfilled predictions.md for the
         # same reason: a template standing in for a gate that happened.
@@ -476,9 +595,44 @@ scan_field_log() { # scan_field_log <log-path>
   # substitution needs no temp file, and assigns to the caller's variables.
   FL_LINE="$(printf '%s\n' "$scanned" | awk -F'\t' '$1=="LINE"{print substr($0, 6); exit}')"
   FL_GATE="$(printf '%s\n' "$scanned" | awk -F'\t' '$1=="GATE"{print $2; exit}')"
+  FL_CLOSED="$(printf '%s\n' "$scanned" | awk -F'\t' '$1=="CLOSED"{print $2; exit}')"
   FL_PLACEHOLDERS="$(printf '%s\n' "$scanned" \
     | awk -F'\t' '$1=="PLACEHOLDER"{p = p (p ? ", " : "") $2} END{print p}')"
   [ -n "$FL_LINE" ]
+}
+
+# --- the candidates ledger --------------------------------------------------
+# CANDIDATES.md's escalation rule — "second incident in a class → mechanism, in
+# that session" — was prose with no reader for exactly one day before it was
+# violated in writing: the cross-chunk seam entry sat `open` at three sightings,
+# annotated "overdue for a mechanism", while the class it describes shipped two
+# regressions two days later. Three chunks had logged the class through three
+# different mechanisms. The log was working; the loop was open.
+#
+# So the ledger gets a read path. Each entry carries a machine-readable line
+# (`Status: open · Occurrences: N · Last: …`) and this prints the ones that have
+# reached the escalation threshold. It runs at `log`, which is where the retro is
+# being written and the counts are being updated anyway.
+#
+# It warns and never fails. A mechanism cannot be built mid-chunk, and a gate
+# that blocks a chunk over a maintainer's backlog is the disproportion
+# non-negotiable #7 exists to prevent. What it removes is the dependence on
+# someone happening to re-read the file.
+candidates_overdue() { # candidates_overdue <ledger-path> — "<N>\t<title>" per overdue entry
+  [ -f "$1" ] || return 0
+  awk '
+    /^###[ \t]/ { title = $0; sub(/^###[ \t]+/, "", title); next }
+    /^Status:/ {
+      st = ""; occ = 0
+      if (match($0, /Status:[ \t]*[a-z]+/)) {
+        st = substr($0, RSTART, RLENGTH); sub(/Status:[ \t]*/, "", st)
+      }
+      if (match($0, /Occurrences:[ \t]*[0-9]+/)) {
+        occ = substr($0, RSTART, RLENGTH); sub(/Occurrences:[ \t]*/, "", occ); occ = occ + 0
+      }
+      if (st == "open" && occ >= 2 && title != "") print occ "\t" title
+    }
+  ' "$1"
 }
 
 # --- reconciliation: declared intent vs what git is actually doing ----------
@@ -651,6 +805,24 @@ print_handoff() {
     next_msg "  That means every *stamped* chunk is done — not that the queue is empty."
     next_msg "  Chunk directories are stamped as each chunk comes up, so check the queue"
     next_msg "  table in $FEATURE_REL/feature.md for the next chunk to stamp."
+    # If the queue really is finished, this is the last moment anything prints
+    # about this feature — so it is the only place a missing feature-close can be
+    # named. The stage was prose and optional by omission, and it was also the
+    # only stage that caught anything on the feature that earned this: two
+    # instrumented gates, 78 oracle assertions and a 295-test suite found none of
+    # seven correctness defects that one independent reviewer found in one pass.
+    # Nothing here can detect whether it happened — chunk-check.sh is per-chunk by
+    # design and reads no feature-level state, and inventing a docs/audits/ probe
+    # would mean parsing feature.md for a path, which this script deliberately
+    # does not do. Naming the state is the whole intervention.
+    next_msg ""
+    next_msg "If the queue IS finished, this feature owes a feature-close: one review of"
+    next_msg "  the cumulative diff by someone who did not write the chunks, recorded as"
+    next_msg "  an artifact in the repo. See references/feature-close.md."
+    next_msg "  It is also what resolves every closed:pending in the field log — the"
+    next_msg "  demotion streak counts chunks that survived it and nothing else."
+    next_msg "  Nothing checks this. Skipping it is a decision; this line is so that it"
+    next_msg "  is a visible one rather than an accident nothing records."
     return 0
   fi
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
@@ -744,6 +916,7 @@ readiness)
 
   # --- read-only reconciliation: runs in both modes -----------------------
   check_spec_contract 0
+  check_out_of_scope_claims
 
   base="$(jget '.baseline_sha // empty')"
   if [ -n "$base" ]; then
@@ -1294,6 +1467,21 @@ log)
       esac
       [ -z "$FL_PLACEHOLDERS" ] \
         || fail "the field-log entry has unfilled placeholder(s): $FL_PLACEHOLDERS — an unanswered observation is not an observation"
+      # `closed:` is the chunk's post-review outcome and cannot be known yet —
+      # `feature-close` fills it in later. Requiring it here anyway, as
+      # `pending`, is the point: optional-by-omission is exactly how the old
+      # streak came to count chunks nobody had reviewed. A field that must be
+      # written as unknown is a field someone has to come back and answer.
+      case "$FL_CLOSED" in
+        pending|clean|defects\(*\)) pass "field-log entry carries closed:$FL_CLOSED" ;;
+        "") fail "the field-log entry has no closed: field — write 'closed:pending' now;"
+            fail "  feature-close sets it to clean or defects(N) once the cumulative diff has"
+            fail "  been reviewed by someone who did not write it. The demotion streak counts"
+            fail "  only chunks that survived that review, because a gate verdict recorded"
+            fail "  before anyone else read the code is not evidence about the code." ;;
+        *)  fail "the field-log entry has an illegal closed: value ('closed:$FL_CLOSED')"
+            fail "  expected one of: pending | clean | defects(N)" ;;
+      esac
       if [ "$FAIL" -eq 0 ]; then
         if jset '.field_log = {path: $p, line: $l, gate: $g, recorded: $now}' \
             --arg p "$log_path" --arg l "$FL_LINE" --arg g "$FL_GATE"; then
@@ -1301,6 +1489,17 @@ log)
           info "  $FL_LINE"
           info "the review gate will re-read this file rather than trust the record"
           info "demotion streak: $(field_log_streak "$log_path") consecutive clean gated chunk(s) — adjust/reject reset it, gate:none excluded; the rule and its n live in the log's header"
+          overdue="$(candidates_overdue "$CANDIDATES_FILE")"
+          if [ -n "$overdue" ]; then
+            warn "the feature-chunker skill has open candidate(s) at 2+ occurrences —"
+            warn "  its own escalation rule says the second incident builds the mechanism:"
+            printf '%s\n' "$overdue" | while IFS="$(printf '\t')" read -r n title; do
+              warn "  · $title ($n sightings)"
+            done
+            warn "  These are gaps in the skill, not in this repo. If this chunk's chafe line is"
+            warn "  another sighting of one of them, raise its Occurrences in ${CANDIDATES_FILE:-CANDIDATES.md}"
+            warn "  and build the fix while the incident is still in the window."
+          fi
         fi
       fi
     fi

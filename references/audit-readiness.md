@@ -276,6 +276,24 @@ Everything below is for `small` and `standard` chunks.
    exists to remove.
    - **Goal** *(human judgement)* — one paragraph, states the user-visible
      outcome.
+
+     *If the goal names a human control* — a confirmation gate, an approval
+     step, a review screen, anything whose point is that a person decides —
+     at least one criterion must be about **the information available at that
+     control**, not only about the correctness of what reaches it. Binary
+     criteria are good at "is the computed thing correct" and structurally
+     blind to "can the human do their job with what they are shown", and the
+     second is the whole purpose of a control.
+
+     Worked example: a criterion read "the targets are exactly the rows
+     carrying an inventory id", and was satisfied precisely — targeting was
+     correct. The gate was still unusable. A query over 50 rows produced 50
+     targets, the confirmation panel showed opaque `INV-…` ids, and no surface
+     rendered the human-meaningful field at all, so an operator could not tell
+     which items a 50-record mutation touched. The feature's stated goal named
+     "a human confirmation gate" as its core safety property and no criterion
+     ever asked whether a human could exercise it (2026-08-04,
+     supply-chain-ops-assistant, 02-adjust-inventory-action).
    - **Acceptance criteria** *(human judgement)* — each one binary and
      mechanically checkable. "Improve the error message" fails this gate;
      "`discover` with zero sources exits 2 and prints the registration hint"
@@ -284,6 +302,26 @@ Everything below is for `small` and `standard` chunks.
      `Source:` line: an untraceable one is invented or reveals a hole upstream,
      and one traced to an `implementation` document is the ADR-as-criterion
      defect from question 1.
+
+     *If a criterion quantifies over sides* — "on **both** sides", "all
+     call sites", "in lockstep", "together, or on neither" — rewrite it to
+     state the **invariant as an outcome**, and list the sides as examples
+     marked explicitly non-exhaustive. An enumeration is checkable only against
+     itself: it can be satisfied exactly as written while the property it was
+     meant to protect is false. An outcome — *"no path reaches a write without
+     passing the confirmation gate"* — is checkable against paths the author
+     did not think of, which is the only kind of check that can catch a side
+     you forgot.
+
+     This is not pedantry about wording; it decides what Track V is permitted
+     to find. A criterion reading "handles X on both sides, the validator and
+     the dispatcher" named two of three sides. The risk floor was the third, it
+     was in no enumeration, and so nothing in spec, plan or oracle ever asked
+     about it — both named sides were wired correctly, the criterion passed, and
+     the outcome was an unattended mutation path. Under that wording, a Track V
+     that went looking at the third side would have read as exceeding the spec
+     rather than fulfilling it (2026-08-04, supply-chain-ops-assistant,
+     02-adjust-inventory-action).
    - **Declared scope** *(enforced: `scope_paths` non-empty and equal to the
      spec's `scope` block)* — the file paths implementation may touch. Missing
      or "wherever needed" fails the gate.
@@ -292,6 +330,68 @@ Everything below is for `small` and `standard` chunks.
      to resolve to tracked files)* — where the oracle will live.
    - **Size class** *(enforced: one of `trivial` / `small` / `standard`, and
      equal to the spec's `size-class` block)* — assigned honestly.
+
+   **Out-of-scope exclusions that assert facts get a citation or an
+   `(unverified)` marker.** *(enforced: `readiness` hard-fails without one)*
+   An entry under `## Out of scope` containing "already", "pre-existing",
+   "inherits", "inherited from", "unchanged from" or "existing behaviour" must
+   either cite a test in backticks or say `(unverified)` out loud.
+
+   Non-negotiable #1 puts an executable oracle behind every acceptance
+   criterion and nothing behind an exclusion — even though exclusions decide
+   what *never gets built*, which is where a wrong belief is most expensive and
+   least visible. A spec excluded a whole defect class because the new action
+   type "inherits this from every existing action type; it is pre-existing
+   behaviour". False in the way that mattered: the two sibling action types
+   each inject a field at dispatch and so are never no-ops, while the new one
+   injects nothing — making it the only one whose path is a pure no-op that
+   still reports success. The exclusion was reasoned from a false premise and
+   nothing in the harness could have noticed (2026-08-04,
+   supply-chain-ops-assistant, 01/02).
+
+   The check does not know whether the claim is true, and does not pretend to.
+   It requires the claim to be **marked**, and it fails rather than warns
+   precisely because the escape hatch is one word: where the honest fix is that
+   cheap, a warning would just accumulate.
+
+   **Then name the consumers of every shared symbol the declared scope
+   touches.** *(human judgement)* A module-global, an exported function, a
+   shared regex or constant, a config key — anything read from outside the file
+   that defines it. Write the answer down: who else reads this, and what would
+   break for them if its meaning widened? The list is what Track V turns into
+   preservation assertions (`references/plan.md` § The standing brief).
+
+   This is judgement rather than a script check because *what a caller is* is a
+   per-repo question — a grep for a Python symbol, a JSON key, a shell variable
+   and a CSS class are four different greps, and a generic one would be either
+   useless or a source of false confidence. Naming that openly is better than a
+   check that looks mechanical and is not.
+
+   **Scope discipline does not cover this, and tightening scope will not fix
+   it.** Declared scope governs which files may change; it says nothing about
+   which behaviors must be preserved. The two are different questions, and the
+   harness asked only one until a chunk with a perfectly clean four-file diff
+   widened a shared entity-id regex and emptied the target list for every other
+   action type that read it. The diff was exactly the declared paths; the blast
+   radius was the whole module (2026-08-04, supply-chain-ops-assistant,
+   02-adjust-inventory-action). Do not respond to this by loosening scope —
+   respond by writing the consumer list.
+
+   **Then read `CANDIDATES.md` § Open and name any entry whose shape matches
+   this chunk.** *(human judgement)* The ledger is what the evidence base
+   already knows about chunks like this one, and until now it had a write path
+   and no read path: entries accumulated, and were surfaced only if someone
+   happened to re-read the file. An entry that matches is not a blocker — it is
+   a known gap in the harness, and knowing which one applies here tells the spec
+   and Track V where to look. `chunk-check.sh log` warns about entries that have
+   reached the escalation threshold, but that fires at the *end* of a chunk;
+   this is the same evidence at the only moment it can still change the spec.
+
+   Concretely, on the chunk this rule was earned by: "Cross-chunk caller/seam
+   sweep" was sitting open at three sightings, marked overdue, and the chunk
+   about to be specified widened a shared regex. Reading the ledger here would
+   have put the question — *who else consumes this?* — in front of the spec
+   author before any criterion was written.
 
 ## The spec contract — why four fields are written twice
 

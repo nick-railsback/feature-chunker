@@ -38,6 +38,257 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — a missing feature-close becomes something the harness says
+
+`feature-close` was prose and optional by omission. It was also the only stage
+that caught anything on the feature this remediation comes from: two instrumented
+gates, 78 oracle assertions across two chunks and a 295-test CI-equivalent suite
+found **none** of seven correctness defects that one independent reviewer found
+in one pass. A stage with that record should not be reachable only by remembering
+it exists.
+
+When `gate approved` finds no unfinished chunk directory left under the feature,
+it now prints that a feature-close is owed, what it is, who may do it, and that
+it is what resolves every `closed:pending` in the field log. That is the last
+moment anything in the harness prints about the feature, which makes it the only
+place the absence can be named.
+
+It does not attempt to detect whether the review happened. Probing for a
+`docs/audits/` artifact would mean parsing `feature.md` for a path, and
+`chunk-check.sh` parses no markdown beyond `spec.md`'s fenced blocks and the
+field log — a design property worth more than a guess would be. The line also
+says outright that nothing checks it, because a reminder that implies enforcement
+it does not have is worse than silence. What changed is that skipping the stage
+is now a decision rather than an omission.
+
+Case 58b2 in `bin/test-chunk-check.sh` (267 → 273), including the negative half:
+a gate with a next chunk still queued must not print it, since a reminder that
+fires every chunk is one nobody reads. Mutation-tested by deleting the lines.
+
+## 2026-08-04 — the demotion streak counts shipped quality, not gate verdicts
+
+The streak was wrong in both directions at once, which means it was not a
+quality measure at all — and it had just reached n=20, the threshold at which
+the demotion rule becomes eligible to retire the plan gate.
+
+**It overcounted the chunk.** The 20th consecutive clean gated chunk logged
+`gate:approve · oracle-caught:n(0) · freeze-trip:n · scope-dev:n ·
+ceremony-ok:y` — as clean as an entry gets — and had shipped two regressions,
+one of which executed an unattended inventory-zeroing path. Nothing in the entry
+is written after the code is exercised by anyone but its author, so nothing
+could have said so.
+
+**It undercounts the gate.** On that same chunk, the plan gate prevented a real
+shippable defect (an id-width trap that passes all 51 frozen tests and fails the
+repo's own fixtures) via plan prose — no `adjust`, no red→green iteration. A
+gate that catches something that way is indistinguishable from a gate that did
+nothing, and it pushes the streak *toward* retiring itself.
+
+Both halves get treated, differently, because only one is mechanisable.
+
+The undercount is named rather than fixed: the log header now says plainly that
+the number measures **"did the human change the plan at the gate"** — a
+reasonable proxy for "is the gate changing outcomes" and no proxy whatsoever for
+"is the work good." A plan that was right the first time *because* the gate
+forced the analysis leaves the same trace as one that was right by luck, and no
+field can separate them.
+
+The overcount is fixed. Entries carry `closed:pending|clean|defects(N)`, placed
+before `context:` (it has to precede `chafe:`, which is last and free text and
+is where the parser stops). `audit-implementation` writes `pending` and `log`
+*requires* it — optional-by-omission is precisely how the streak came to count
+unreviewed chunks. `feature-close` resolves it. `field_log_streak` counts only
+`closed:clean`; `defects(N)` resets alongside `adjust`/`reject`; `pending` and
+absent are unknowns that neither extend nor reset.
+
+**The honest cost, since it is a real one:** no existing entry has the field, so
+the streak reads `0` the day this lands and stays near zero until features start
+closing. That retires a 20-chunk streak by assertion rather than by evidence.
+It is the right trade only because of what the streak turned out to be measuring
+— but it is a reset, and the log header records it as one rather than letting
+the number quietly restart.
+
+Cases 67b and 67c in `bin/test-chunk-check.sh` (260 → 267). Mutation-tested
+three ways: dropping the `closed:` requirement, making `defects` stop resetting,
+and letting any outcome extend the streak each turn the suite red.
+
+## 2026-08-04 — exclusions get checked, because nothing else checks them
+
+Non-negotiable #1 puts an executable oracle behind every acceptance criterion.
+Exclusions get nothing — and an exclusion decides what *never gets built*, which
+is where a wrong belief is most expensive and least visible.
+
+A spec excluded a whole defect class on this reasoning: the new action type
+"inherits this from every existing action type; it is pre-existing behaviour."
+False in the way that mattered. The two sibling action types each inject a field
+at dispatch, so neither is ever a no-op; the new one injects nothing, making it
+the only action whose path is a pure no-op that still reports success. The
+exclusion was reasoned from a false premise, and no part of the harness could
+have noticed (2026-08-04, supply-chain-ops-assistant, chunks 01 and 02).
+
+`readiness` now reads `## Out of scope` and hard-fails on an entry asserting
+something about existing behaviour — *already, pre-existing, inherits, inherited
+from, unchanged from, existing behaviour* — unless it cites a test in backticks
+or marks itself `(unverified)`. Entries are bullets and paragraphs rather than
+lines, so a citation on the second line of a wrapped bullet counts and one in
+the *next* bullet does not.
+
+**It fails rather than warns, and the reason is the escape hatch.** The check
+cannot know whether a claim is true. It requires the claim to be *marked*, which
+makes the fix one word — and where the honest fix is that cheap, a warning would
+only accumulate.
+
+Two notes on getting it right, both earned during the change itself. The rule
+belongs in `templates/spec.md`, which puts explanatory prose *inside the section
+the checker scans* — the shipped template would trip its own check, or quietly
+satisfy it. Guidance is now an HTML comment and the checker skips comments,
+which is honest anyway: a comment is not an exclusion. And the first version of
+the test for that skip quoted the rule verbatim, marker included, so it passed
+whether or not comments were skipped. The delete-the-check trial caught it; the
+fixture now carries a claim phrase and neither escape hatch. Both are the
+skill-engine 19 class — a check whose own source contains what it looks for.
+
+Cases 70a–70g in `bin/test-chunk-check.sh` (250 → 260). Mutation-tested five
+ways: removing the call, either escape hatch, the bullet-level entry split, and
+the comment skip each turn the suite red.
+
+## 2026-08-04 — two things a binary criterion is structurally bad at
+
+Both land as sub-rules under the spec gate's two *judgement* bullets rather than
+as new peer bullets. That file argues, correctly, that five bullets reading as
+equally enforced when only three are is the drift the harness exists to remove;
+adding two more unenforced ones would have made the argument and broken it in
+the same edit.
+
+**Enumerated sides are checkable only against themselves.** A criterion read
+"handles `INV-` targets on **both** sides, the validator and the dispatcher."
+There were three. The risk floor was the third, it was in no enumeration, and
+nothing in spec, plan or oracle ever asked about it — both named sides were
+wired correctly, the criterion was satisfied exactly as written, and the outcome
+was an unattended mutation path. A criterion quantifying over sides now states
+the invariant as an *outcome* and lists the sides as explicitly non-exhaustive
+examples. That is not a wording preference: under the old phrasing, a Track V
+that went looking at an unnamed third side would have read as exceeding the spec
+rather than fulfilling it.
+
+**Binary criteria are blind to reviewability.** "The targets are exactly the
+rows carrying an inventory id" was satisfied precisely — and the gate it fed was
+unusable, because 50 targets rendered as 50 opaque ids with no surface showing
+the human-meaningful field. The feature's stated goal named "a human
+confirmation gate" as its core safety property, and no criterion asked whether a
+human could exercise it. When a goal names a human control, at least one
+criterion is now about the information available *at* that control, not only the
+correctness of what reaches it.
+
+Earned 2026-08-04, supply-chain-ops-assistant 02-adjust-inventory-action.
+
+## 2026-08-04 — two oracle classes from one defect the oracle already ran
+
+The worst defect this harness has shipped was executed by its own oracle, in a
+test written correctly, blind, from the spec. Two classes come out of it, both
+two paragraphs of Track V brief, and between them they cover it twice.
+
+**A bypass-flag test needs a no-flag sibling.** A test named for the property
+"what the validator admits is what the dispatcher routes" drove exactly the path
+that became unguarded — and passed `confirmed=True` to get there, because
+otherwise the confirmation gate stopped it. The flag that let the test reach its
+assertion is the flag that made the defect invisible. Any test passing
+`confirmed=`, `force=`, `skip_validation=` or an equivalent has, by
+construction, blinded itself to whatever that flag disables; it now owes a
+sibling asserting the control fires when the flag is absent.
+
+**A semantic class needs its mechanisms enumerated.** The criterion said "no
+inventory adjustment grades `low`" — semantic. The code keyed on
+`action_type in {…, ADJUST_INVENTORY}` — syntactic. All 15 parametrized cases
+constructed proposals with that enum member, so the oracle asserted the narrower
+set, and a bulk update carrying an inventory target — an inventory adjustment by
+any reading of the criterion, and not an `ADJUST_INVENTORY` — went through
+unattended.
+
+That second one is the uncomfortable half, because the control that should have
+caught it is the blind oracle. Track V wrote those tests from `spec.md` with no
+plan in context, exactly as designed. **Blindness protects against anchoring on
+the plan, not against anchoring on the type system** — the author still reached
+for the codebase's enum to express a claim the spec had made about a class of
+behavior. So: enumerate the mechanisms that can produce a member of the class
+before writing the test. If the class is expressible only by naming one enum
+member, the code and the spec disagree about what the class is, and that
+disagreement is the finding.
+
+Earned 2026-08-04, supply-chain-ops-assistant 02-adjust-inventory-action.
+
+## 2026-08-04 — who else reads this symbol? (the seam sweep, finally)
+
+The oldest open entry in `CANDIDATES.md`, closed on its fourth sighting — the
+one that shipped a regression.
+
+A chunk widened a shared module-global entity-id regex so it would match a new
+entity prefix. Its scope discipline was perfect: four files, exactly the declared
+paths, no creep, `verify` clean. All 13 acceptance criteria concerned the new
+entity. All 51 oracle assertions concerned the new entity. Four other action
+types read that same regex, and the widened match silently emptied their target
+lists — a query naming an inventory id returned no shipments where the same
+query without it returned two.
+
+The sentence this earns: **declared scope governs which files may change, never
+which behaviors must be preserved.** Scope makes a diff reviewable. It says
+nothing about blast radius. The harness had been asking one of those questions
+and reading the answer as though it covered both. Do not fix this by loosening
+scope — scope discipline was the part that worked.
+
+Two changes, both human judgement and marked as such. `audit-readiness` § step 3
+names the consumers of every shared symbol the declared scope touches, and asks
+what would break for them if its meaning widened. `plan.md` § The standing brief
+gains a fifth class: an oracle for such a chunk carries at least one
+*preservation* assertion per consumer class — not "the new behavior is right"
+but "what was true for the existing callers still is." That is the one assertion
+a spec-shaped blind spot cannot delete, because it is not derived from what the
+chunk is adding.
+
+**Why not a check.** A fifth fenced `consumers` block in `spec.md`, reconciled
+like the other four, was considered and rejected: it can verify the list was
+filled in, never that it is complete, and a consumer nobody thought of is what
+produced all four sightings. `CANDIDATES.md` records the rejection with its
+reasoning. This fix is a prediction rather than a guard, by this skill's own
+standard — what changed is that occurrence five will announce itself at every
+chunk close instead of waiting to be re-read.
+
+## 2026-08-04 — the candidates ledger gets a read path
+
+An independent review of the `inventory-action` feature found ten defects on a
+branch where every gate was green (2026-08-04, supply-chain-ops-assistant,
+chunks 01 and 02). The highest-leverage finding was not about any chunk. It was
+about this repo.
+
+`CANDIDATES.md` shipped 2026-08-03 carrying an entry, "Cross-chunk caller/seam
+sweep at spec time or Track V", at three sightings, annotated in its own words
+**"overdue for a mechanism"** under the escalation rule at the top of the same
+file. One day later a chunk widened a shared module-global regex; the change
+emptied the target list for every other consumer of it. That is the entry's
+class exactly, and the entry was already written down when the chunk was
+specified. Nothing read it.
+
+So the ledger was never the problem — the write path worked three times. A
+ledger nothing reads is a diary, and the escalation rule was prose depending on
+someone happening to re-open the file.
+
+Every entry now carries `Status: open|landed · Occurrences: N · Last: <date>
+<repo> <chunk>`, and `chunk-check.sh log` prints the open entries that have
+reached two sightings, at every chunk close, until they are built or rejected.
+It warns and never fails: a mechanism cannot be built mid-chunk, and blocking
+someone's chunk over a maintainer's backlog is the disproportion
+non-negotiable #7 exists to prevent.
+
+The counting is the other half, and it is prose because it is judgement:
+`audit-implementation`'s retro reconciles each chafe line against the ledger, so
+three sightings of one class become the number `3` rather than three unconnected
+sentences in a 200-line log. `audit-readiness` reads the open entries while the
+spec can still change, which is the only moment the knowledge is worth anything.
+
+Case 69 in `bin/test-chunk-check.sh` (250). Mutation-tested three ways: deleting
+the warning block, dropping the threshold to one sighting, and dropping the
+open/landed discriminator each turn the suite red.
+
 ## 2026-08-04 — context packs: the chunk-time edit is a scratch capture
 
 `audit-implementation`'s refresh rule tells the chunk that changed what a pack

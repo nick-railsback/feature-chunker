@@ -76,4 +76,22 @@ surface; don't edit one side.
 
 ## Out of scope
 
+<!--
+`readiness` reads the section below and hard-fails on an exclusion that asserts
+something about existing behaviour -- the words it looks for are the obvious
+ones: already, pre-existing, inherits, inherited from, unchanged from, existing
+behaviour -- unless that entry either cites a test in backticks or marks itself
+(unverified).
+
+Acceptance criteria get an executable oracle; exclusions get nothing, and they
+decide what never gets built, which is where a wrong belief is most expensive
+and least visible. The check cannot tell whether a claim is true. It insists
+you say which, and (unverified) is a complete answer.
+
+This guidance is an HTML comment on purpose: written as ordinary prose it would
+sit inside the very section the checker scans, and the shipped template would
+trip -- or quietly satisfy -- its own rule. Same class as an oracle grepping a
+tree for a string its own source must contain.
+-->
+
 <adjacent things this chunk deliberately does not do>

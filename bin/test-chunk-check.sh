@@ -156,6 +156,15 @@ chunk_check_home() { # chunk_check_home <repo_dir> <home> <op> [args...]
   ( cd "$repo_dir" && HOME="$home" bash "$CHECK" "$op" "$CHUNK" "$@" )
 }
 
+# Same, with the candidates ledger overridden. The escalation warning has to be
+# asserted against a ledger this suite controls: pointed at the real
+# CANDIDATES.md the cases would pass or fail depending on what the maintainer's
+# backlog happens to say today, which is a test of the wrong thing.
+chunk_check_cand() { # chunk_check_cand <repo_dir> <ledger> <op> [args...]
+  local repo_dir="$1" ledger="$2" op="$3"; shift 3
+  ( cd "$repo_dir" && CHUNK_CHECK_CANDIDATES="$ledger" bash "$CHECK" "$op" "$CHUNK" "$@" )
+}
+
 state_get() { # state_get <repo_dir> <jq filter>
   jq -r "$2" "$1/$CHUNK/state.json"
 }
@@ -359,9 +368,9 @@ implement() { printf 'feature\n' > "$1/src/feature.txt"; }
 # to the evidence base corrupts the dataset the demotion rule reads.
 field_log_path() { printf '%s/%s-field-log.md' "$FIXROOT" "$(basename "$1")"; }
 
-log_line() { # log_line <repo_dir> <gate-verdict> [chunk] [ceremony-ok]
-  printf '2026-07-28 | %s | %s | gate:%s | oracle-caught:y(2) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:%s | context:none | chafe: none' \
-    "$(basename "$1")" "${3:-01-x}" "$2" "${4:-y}"
+log_line() { # log_line <repo_dir> <gate-verdict> [chunk] [ceremony-ok] [closed]
+  printf '2026-07-28 | %s | %s | gate:%s | oracle-caught:y(2) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:%s | closed:%s | context:none | chafe: none' \
+    "$(basename "$1")" "${3:-01-x}" "$2" "${4:-y}" "${5:-pending}"
 }
 
 write_field_log() { # write_field_log <repo_dir> [line...]
@@ -918,13 +927,13 @@ expect "44 unfilled placeholder in the entry: log fails" 1 "unfilled placeholder
 d="$(new_fixture case44b 'bash tests/chunk/oracle.sh' tracked trivial)"
 quiet_check "$d" bypass "rename the timeout constant"
 fl_bypass() { # fl_bypass <chafe-text>
-  printf '2026-07-28 | %s | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | context:none | chafe: %s' \
+  printf '2026-07-28 | %s | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | closed:pending | context:none | chafe: %s' \
     "$(basename "$d")" "$1"
 }
 write_field_log "$d" "$(fl_bypass '?')"
 expect "44b unanswered chafe: log refuses the line" 1 "unfilled placeholder" -- \
   chunk_check "$d" log --log-path "$(field_log_path "$d")"
-write_field_log "$d" "2026-07-28 | $(basename "$d") | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | context:none | chafe:"
+write_field_log "$d" "2026-07-28 | $(basename "$d") | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | closed:pending | context:none | chafe:"
 expect "44b empty chafe: log refuses the line too" 1 "unfilled placeholder" -- \
   chunk_check "$d" log --log-path "$(field_log_path "$d")"
 write_field_log "$d" "$(fl_bypass 'why does readiness gate test_paths before it reaches the bypass rule?')"
@@ -1242,6 +1251,33 @@ assert_contains "58b no unfinished chunk dir is reported as such" "$out" "no unf
 assert_contains "58b and points at the queue table for unstamped chunks" "$out" "feature.md"
 assert_absent   "58b it never claims the queue is empty"          "$out" "queue is clear"
 assert_absent   "58b and emits no resume prompt"                  "$out" "/feature-chunker Repo:"
+
+# 58b2 — and it names the feature-close the feature now owes. That stage was
+#        prose, optional by omission, and the only thing that caught anything on
+#        the feature that earned this rule: two instrumented gates, 78 oracle
+#        assertions and a 295-test suite found none of seven correctness defects
+#        one independent reviewer found in a single pass (2026-08-04,
+#        supply-chain-ops-assistant). This is the last moment anything prints
+#        about the feature, so it is the only place its absence can be named.
+assert_contains "58b2 the owed feature-close is named at the last chunk's gate" \
+  "$out" "owes a feature-close"
+assert_contains "58b2 and says who may do it"     "$out" "did not write the chunks"
+assert_contains "58b2 and ties it to closed:pending" "$out" "closed:pending"
+assert_contains "58b2 and admits nothing checks it"  "$out" "Nothing checks this"
+
+# The line must NOT appear when there is a next chunk: a feature mid-queue owes
+# no close, and a reminder that fires every chunk is a reminder nobody reads.
+#        The sibling is stamped after verify on purpose: a chunk directory
+#        appearing mid-flight is out of declared scope and verify refuses it
+#        (case 32), so stamping it earlier would never reach the gate at all.
+d="$(new_fixture case58b2)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"; quiet_check "$d" verify; log_and_gate "$d"
+mkdir -p "$d/docs/chunks/f/02-y"
+printf '{"schema_version":10,"chunk":"02-y","stage":"specified"}\n' > "$d/docs/chunks/f/02-y/state.json"
+out="$(chunk_check "$d" gate approved 2>&1)"
+assert_contains "58b2 a mid-queue gate still names the next chunk" "$out" "next chunk: 02-y"
+assert_absent   "58b2 and does not ask for a feature-close yet"    "$out" "owes a feature-close"
 
 # 58c — skips chunks already closed. Glob order is lexicographic and the queue
 #       is numbered, so "first non-done sibling" is the next one to work on.
@@ -1564,27 +1600,218 @@ assert_absent "68e status does not flag an ordinary stamp" "$out" "ONE-PASS"
 #      manual counter feeding the one mechanism that adapts ceremony downward
 #      from data. The log stays the data; the script does the arithmetic.
 #      gate:none is excluded but does not break the run; adjust and reject
-#      both reset it; approve and auto-pass extend it.
+#      both reset it; approve and auto-pass extend it — but only once the
+#      chunk has survived a feature-close (see 67b).
 d="$(new_fixture case67)"
 quiet_check "$d" readiness; quiet_check "$d" freeze
 implement "$d"
 quiet_check "$d" verify
+fl="$(field_log_path "$d")"
 write_field_log "$d" \
-  "$(log_line "$d" approve 00-a)" \
-  "$(log_line "$d" adjust 00-b)" \
-  "$(log_line "$d" approve 00-c)" \
-  "$(log_line "$d" none 00-d)" \
-  "$(log_line "$d" auto-pass 00-e)" \
-  "$(log_line "$d" approve 01-x)"
-out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"; rc=$?
+  "$(log_line "$d" approve   00-a y clean)" \
+  "$(log_line "$d" adjust    00-b y clean)" \
+  "$(log_line "$d" approve   00-c y clean)" \
+  "$(log_line "$d" none      00-d y clean)" \
+  "$(log_line "$d" auto-pass 00-e y clean)" \
+  "$(log_line "$d" approve   01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"; rc=$?
 assert_eq "67 log passes with the entry present" "$rc" "0"
 assert_contains "67 streak computed: adjust resets it, none is excluded" "$out" "demotion streak: 3"
 write_field_log "$d" \
-  "$(log_line "$d" approve 00-a)" \
-  "$(log_line "$d" reject 00-b)" \
-  "$(log_line "$d" approve 01-x)"
-out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" reject  00-b y clean)" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
 assert_contains "67 reject resets the streak too" "$out" "demotion streak: 1"
+
+# 67b — the streak counts SHIPPED quality, not gate verdicts. It used to count
+#       a chunk the moment its gate was recorded, which is before anyone but
+#       the author has read the code — so the 20th consecutive "clean" gated
+#       chunk was one that shipped two regressions, and it was that chunk that
+#       made the demotion rule eligible to fire (2026-08-04,
+#       supply-chain-ops-assistant). Only closed:clean extends it now.
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" approve 00-b y clean)" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b three closed-clean chunks: streak 3" "$out" "demotion streak: 3"
+
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" approve 00-b y 'defects(2)')" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b a chunk that shipped defects resets it, gate notwithstanding" \
+  "$out" "demotion streak: 1"
+
+# pending is an UNKNOWN outcome, not a catch: it neither extends nor resets.
+# The streak recomputes from the file each run, so a pending entry that later
+# becomes defects(N) resets it retroactively and correctly.
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" approve 00-b y pending)" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b pending neither extends nor resets" "$out" "demotion streak: 2"
+
+# Entries predating the field are unknown for the same reason, so a log that
+# has never been closed reads 0 rather than reading as a long clean run.
+write_field_log "$d" \
+  "2026-07-28 | $(basename "$d") | 00-a | gate:approve | oracle-caught:n(0) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:y | context:none | chafe: none" \
+  "$(log_line "$d" approve 01-x y pending)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b an entry with no closed: field does not extend the streak" \
+  "$out" "demotion streak: 0"
+
+# 67c — `log` requires the field, written as pending. Optional-by-omission is
+#       how the old streak came to count chunks nobody had reviewed.
+write_field_log "$d" \
+  "2026-07-28 | $(basename "$d") | 01-x | gate:approve | oracle-caught:n(0) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:y | context:none | chafe: none"
+expect "67c an entry with no closed: field is refused" 1 "no closed: field" -- \
+  chunk_check "$d" log --log-path "$fl"
+write_field_log "$d" "$(log_line "$d" approve 01-x y 'sort of')"
+expect "67c an illegal closed: value is refused" 1 "illegal closed: value" -- \
+  chunk_check "$d" log --log-path "$fl"
+write_field_log "$d" "$(log_line "$d" approve 01-x y pending)"
+expect "67c closed:pending is a legal answer at log time" 0 "closed:pending" -- \
+  chunk_check "$d" log --log-path "$fl"
+
+# 69 — the candidates ledger's escalation rule, read rather than remembered.
+#      CANDIDATES.md says "second incident in a class -> mechanism, in that
+#      session" and had no reader: an entry sat open at three sightings,
+#      annotated overdue, while its class shipped two regressions two days
+#      later (2026-08-04, supply-chain-ops-assistant). `log` now prints the
+#      entries that have reached the threshold. It warns and never fails —
+#      a maintainer's backlog must not block someone else's chunk.
+d="$(new_fixture case69)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" verify
+write_field_log "$d" "$(log_line "$d" approve 01-x)"
+fl="$(field_log_path "$d")"
+
+ledger="$FIXROOT/case69-overdue.md"
+printf '%s\n' \
+  '## Open' \
+  '' \
+  '### Cross-chunk caller sweep' \
+  '' \
+  'Status: open · Occurrences: 3 · Last: 2026-08-02 skill-engine 21-eval-runs' \
+  '' \
+  'prose about the class.' \
+  '' \
+  '### Something seen once' \
+  '' \
+  'Status: open · Occurrences: 1 · Last: 2026-07-30 skill-engine 05-repo-claude-md' \
+  '' \
+  'prose.' > "$ledger"
+out="$(chunk_check_cand "$d" "$ledger" log --log-path "$fl" 2>&1)"; rc=$?
+assert_eq "69 an overdue candidate does not fail the op" "$rc" "0"
+assert_contains "69 the overdue entry is named"        "$out" "Cross-chunk caller sweep"
+assert_contains "69 with its sighting count"           "$out" "(3 sightings)"
+assert_contains "69 said to be about the skill, not this repo" "$out" "not in this repo"
+assert_absent   "69 an entry seen once is below the threshold" "$out" "Something seen once"
+
+ledger="$FIXROOT/case69-quiet.md"
+printf '%s\n' \
+  '## Open' \
+  '' \
+  '### Seen once' \
+  '' \
+  'Status: open · Occurrences: 1 · Last: 2026-07-30 skill-engine 05-repo-claude-md' \
+  '' \
+  '## Landed' \
+  '' \
+  '### Already built' \
+  '' \
+  'Status: landed · Occurrences: 4 · Last: 2026-08-03 skill-engine 24-dogfood' > "$ledger"
+out="$(chunk_check_cand "$d" "$ledger" log --log-path "$fl" 2>&1)"
+assert_absent "69 nothing overdue: no warning at all" "$out" "escalation rule"
+assert_absent "69 a landed entry never warns, whatever its count" "$out" "Already built"
+
+out="$(chunk_check_cand "$d" "$FIXROOT/case69-absent.md" log --log-path "$fl" 2>&1)"; rc=$?
+assert_eq     "69 a missing ledger is silent, not an error" "$rc" "0"
+assert_absent "69 and prints no escalation warning"         "$out" "escalation rule"
+
+# 70 — out-of-scope exclusions that assert facts about existing behaviour.
+#      Non-negotiable #1 puts an oracle behind every acceptance criterion and
+#      nothing behind an exclusion — which is where a wrong belief is most
+#      expensive, because it decides what is never built. A spec excluded a
+#      defect class as "inherits this from every existing action type; it is
+#      pre-existing behaviour", which was false in the way that mattered
+#      (2026-08-04, supply-chain-ops-assistant). The check demands the claim be
+#      MARKED, not that it be true: cite a test, or write (unverified).
+oos() { # oos <repo_dir> <line...> — give the fixture spec an Out of scope section
+  local d="$1"; shift
+  { printf '\n%s\n\n' '## Out of scope'; printf '%s\n' "$@"; } >> "$d/$CHUNK/spec.md"
+}
+
+d="$(new_fixture case70a)"
+oos "$d" '- empty-changes proposals: `adjust_inventory` inherits this from every' \
+         '  existing action type; it is pre-existing behaviour.'
+expect "70a an unmarked claim about existing behaviour: readiness fails" \
+  1 "asserts facts about existing behaviour" -- chunk_check "$d" readiness
+expect "70a the offending exclusion is quoted back" \
+  1 "empty-changes proposals" -- chunk_check "$d" readiness
+
+# 70b — the one-word escape hatch. The check cannot know whether a claim is
+#       true; it can insist the author says which.
+d="$(new_fixture case70b)"
+oos "$d" '- empty-changes proposals: inherited from every existing action type' \
+         '  (unverified).'
+expect_absent "70b (unverified) satisfies it" "asserts facts" -- chunk_check "$d" readiness
+
+# 70c — a cited test satisfies it too, and is the stronger answer.
+d="$(new_fixture case70c)"
+oos "$d" '- empty-changes proposals: pre-existing behaviour, held by' \
+         '  `tests/dispatch/test_empty_changes.py`.'
+expect_absent "70c a backticked test citation satisfies it" "asserts facts" -- chunk_check "$d" readiness
+
+# 70d — entries are bullets, not lines. A citation in the NEXT bullet must not
+#       excuse the claim in this one, or the check reads a section top to bottom
+#       and passes on any single citation anywhere in it.
+d="$(new_fixture case70d)"
+oos "$d" '- empty-changes proposals: pre-existing behaviour.' \
+         '- batching, covered by `tests/queue/test_batch.py`.'
+expect "70d a citation in a sibling bullet does not cover this one" \
+  1 "asserts facts about existing behaviour" -- chunk_check "$d" readiness
+
+# 70e — no section, and the untouched template placeholder, are both silent.
+#       templates/spec.md ships '## Out of scope' with a <placeholder> body;
+#       a check that fired on it would fail every chunk stamped from template.
+d="$(new_fixture case70e)"
+expect_absent "70e no Out of scope section: nothing to check" "asserts facts" -- chunk_check "$d" readiness
+oos "$d" '<adjacent things this chunk deliberately does not do>'
+expect_absent "70e the template placeholder is not a claim" "asserts facts" -- chunk_check "$d" readiness
+
+# 70f — an HTML comment is guidance, not an exclusion. This is what lets
+#       templates/spec.md document the rule inside the section the rule
+#       governs. Without it the shipped template either trips its own check or
+#       -- worse, and this is how it was first written -- quietly satisfies it
+#       because the explanatory prose happens to contain the escape hatch it is
+#       describing. Same class as skill-engine 19's self-matching grep.
+#       The comment here deliberately carries a claim phrase and NEITHER escape
+#       hatch. Written the obvious way -- quoting the rule, marker and all -- it
+#       would satisfy the check whether or not comments are skipped, and pass
+#       for the wrong reason. (It was written that way first; the delete-the-
+#       check trial is what caught it.)
+d="$(new_fixture case70f)"
+oos "$d" '<!--' \
+         'Reminder: an earlier draft claimed this was pre-existing behaviour.' \
+         '-->' \
+         '- rendering the SKU column; that is chunk 03.'
+expect_absent "70f an HTML comment is not an exclusion" "asserts facts" -- chunk_check "$d" readiness
+oos "$d" '- empty-changes proposals: pre-existing behaviour.'
+expect "70f and skipping it does not swallow the entries after it" \
+  1 "asserts facts about existing behaviour" -- chunk_check "$d" readiness
+
+# 70g — the shipped template must pass its own check, whatever its guidance
+#       says. Case 39 pins the fenced blocks; this pins the prose.
+d="$(new_fixture case70g)"
+cp "$TEMPLATES/spec.md" "$d/$CHUNK/spec.md"
+expect_absent "70g the shipped template does not trip the out-of-scope check" \
+  "asserts facts" -- chunk_check "$d" readiness
 
 # --- summary ---------------------------------------------------------------
 

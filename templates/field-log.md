@@ -35,11 +35,32 @@ demotion rule reads it, and no field may be left as `?`.
 
 The plan gate defaults on. It may auto-pass for `small` chunks only when the
 **last 20 consecutive gated chunks** in this log show **zero `adjust` and
-zero `reject`** — twenty consecutive chunks in which the gate never changed
-an outcome. `standard` chunks always gate; `trivial` chunks never reach the
-gate. Entries with `gate:none` (bypassed) are logged but do **not** count
-toward the streak in either direction — they were never gated, so they are
-evidence about proportionality, not about the gate.
+zero `reject`**, *and* have each been marked `closed:clean` — twenty
+consecutive chunks in which the gate never changed an outcome and none of
+which turned out to have shipped a defect. `standard` chunks always gate;
+`trivial` chunks never reach the gate. Entries with `gate:none` (bypassed) are
+logged but do **not** count toward the streak in either direction — they were
+never gated, so they are evidence about proportionality, not about the gate.
+
+**Read the number as what it is: *did the human change the plan at the
+gate***, on work that later survived review. That is a reasonable proxy for
+"is the gate changing outcomes" and **no proxy whatsoever for "is the work
+good."** Saying so plainly is load-bearing, because for a while the number was
+read as the second and was wrong in both directions at once:
+
+- **It undercounts the gate.** A plan gate that prevents a real shippable
+  defect *through the act of making someone write the risk down* produces no
+  `adjust` and no red→green iteration. It is indistinguishable, in this log,
+  from a gate that did nothing — and it pushes the streak *toward* retiring
+  itself. This half is probably unfixable by any mechanism: a plan that was
+  right the first time because the gate forced the analysis leaves the same
+  trace as one that was right by luck.
+- **It overcounted the chunk, and this half is now fixed.** The 20th
+  consecutive clean gated chunk — `gate:approve · oracle-caught:n(0) ·
+  scope-dev:n · ceremony-ok:y`, as clean as an entry gets — had shipped two
+  regressions, found afterward by one independent review. Nothing in the entry
+  was written after the code had been read by anyone but its author, so nothing
+  could have said so. `closed:` is that missing observation.
 
 **The current streak is computed, never hand-maintained.** `chunk-check.sh
 log` derives it from the entries below and prints it with every recorded
@@ -71,10 +92,31 @@ Two things worth not re-deriving later:
 
 ## Entry format
 
-`YYYY-MM-DD | repo | chunk | gate:approve|adjust|reject|auto-pass|none | oracle-caught:y/n(N) | freeze-trip:y/n | scope-dev:y/n | bypass:y/n | ceremony-ok:y/n | context:<pack|none> | chafe: <one line>`
+`YYYY-MM-DD | repo | chunk | gate:approve|adjust|reject|auto-pass|none | oracle-caught:y/n(N) | freeze-trip:y/n | scope-dev:y/n | bypass:y/n | ceremony-ok:y/n | closed:pending|clean|defects(N) | context:<pack|none> | chafe: <one line>`
 
 `gate:none` marks a bypassed chunk: logged for the proportionality question,
 excluded from the demotion streak.
+
+**`closed:` is the only field written after the chunk is over.** Every other
+field is filled by the author, about their own work, before anyone else has
+read it. This one is filled by `feature-close`, once the cumulative diff has
+been reviewed by someone who did not write it:
+
+- `pending` — what `audit-implementation` writes. The chunk is done and its
+  outcome is not known yet. `chunk-check.sh log` **requires** the field and
+  accepts `pending`, because optional-by-omission is exactly how the streak
+  came to count chunks nobody had reviewed.
+- `clean` — feature-close found nothing against this chunk. Only this extends
+  the streak.
+- `defects(N)` — feature-close found N findings against this chunk. Resets the
+  streak, whatever the gate verdict said.
+
+`pending` is an **unknown**, not a catch: it neither extends nor resets. The
+streak is recomputed from this file on every run, so a `pending` entry that is
+later corrected to `defects(2)` resets the streak retroactively and correctly.
+Entries written before this field existed have no `closed:` and are unknown for
+the same reason — which means a log that has never been through a feature-close
+reads `0`, rather than reading as a long clean run it cannot support.
 
 **`chafe:` is one record, not one sentence.** The parser reads one line per
 chunk, so a literal newline breaks the entry — but the field's length is

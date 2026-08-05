@@ -159,6 +159,13 @@ act on:
   the pack didn't carry: y/n. That second half is the only observation that can
   ever retire or repair a pack; "the pack was loaded" on its own is attendance,
   not evidence.
+- Post-close outcome: **always `pending` here.** Every other field in the entry
+  is the author reporting on their own work before anyone else has read it;
+  `closed:` is the one field written afterwards, by `feature-close`, and at
+  retro time its honest value is "not known yet". Write it anyway — `log`
+  requires it. A field that must be filled in as unknown is a field somebody
+  has to come back and answer, and the alternative was a streak that counted
+  chunks nobody had reviewed.
 
 Then `chafe:` — free text, one *line* in the parsing sense (no literal
 newline; the log reads one line per chunk) but not one sentence: the condensed
@@ -209,6 +216,26 @@ anything from it. Then apply the incident-to-case rule to the harness itself:
 - Any process failure observed → a concrete candidate change to these
   reference files, made **in the session that earned it**, not deferred to a
   hypothetical cleanup pass.
+- **Reconcile the chafe line against `CANDIDATES.md` before moving on.** If it
+  is another sighting of an open entry, raise that entry's `Occurrences:` and
+  update its `Last:`; if it is new and needs a maintainer's design decision,
+  add an entry. This is the step that turns three sightings of one class into
+  the number `3` rather than three unconnected sentences in a 200-line log —
+  and `chunk-check.sh log` warns at every close while any open entry stands at
+  two or more, so the count is what decides whether the escalation rule fires.
+  The rule that it fires ("second incident in a class → mechanism, in that
+  session") lives in `CANDIDATES.md`; it is not restated here, for the same
+  reason the demotion rule is not.
+
+  The gap this closes is the one that produced the worst regression the skill
+  has shipped. Three chunks logged the same cross-consumer collision class
+  through three different mechanisms, each with a `chafe:` line naming it, and
+  nothing carried any of them into a change: candidates lived in free text with
+  a write path and no read path. `SKILL.md`'s claim that observed failures
+  become reference changes in the session that earned them held reliably for
+  failures whose fix was *local to the session*, and reliably failed for fixes
+  belonging to a different stage than the one that noticed
+  (2026-08-04, supply-chain-ops-assistant, 02-adjust-inventory-action).
 - **Check the demotion rule against the log's header, which states it.** Read
   it there and apply it there; it is not restated here, because the log lives
   outside this skill directory and a copy in this file would silently disagree

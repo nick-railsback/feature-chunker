@@ -169,7 +169,11 @@ prose asking anyone to be careful.
 - `readiness` — reconcile recorded state against disk (`spec.md` against
   `state.json`, the declared `artifacts` mode against git, `branch` against
   HEAD, `baseline_sha` against history), gate the declared fields, run the
-  baseline suite → pin `baseline_sha` + `branch`, stage `ready`
+  baseline suite → pin `baseline_sha` + `branch`, stage `ready`. It also
+  refuses an `## Out of scope` exclusion that asserts something about existing
+  behaviour ("already", "pre-existing", "inherited from") without either citing
+  a test or marking itself `(unverified)` — exclusions decide what never gets
+  built and are the one part of the spec with no oracle attached
 - `predict` — stamp the filled top half of `predictions.md` into `state.json`
   while the verdict is still blank (refusing unfilled blanks and a
   pre-recorded verdict), noting whether a plan draft was on disk. This makes
@@ -192,7 +196,15 @@ prose asking anyone to be careful.
   not approved → stage `verified`. Refuses on any bypassed chunk: no freeze
   happened, so there is nothing here to check and the review gate is its exit
 - `log` — the retro's field-log line is really in the log file, carries a legal
-  `gate:` verdict and has no field left as `?` → record it in `state.json`
+  `gate:` verdict, a legal `closed:` value and no field left as `?` → record it
+  in `state.json`. `closed:` is `pending` here and resolved at `feature-close`;
+  the demotion streak counts only chunks later marked `closed:clean`, because a
+  gate verdict recorded before anyone but the author has read the code is not
+  evidence about the code. It
+  also reads `CANDIDATES.md` and warns while any open entry has reached two
+  sightings, which is that file's own threshold for building the mechanism — a
+  ledger with a write path and no read path is a diary, and the class that
+  proved it shipped two regressions from an entry that already said "overdue"
 - `gate <verdict>` — record the human's review verdict; from `verified` or
   `bypassed` only → `done`, back to `approved`, or `blocked`. `approved`
   re-reads the field log and refuses without the entry, then **hands off**: it
