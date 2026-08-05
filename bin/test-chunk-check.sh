@@ -368,9 +368,9 @@ implement() { printf 'feature\n' > "$1/src/feature.txt"; }
 # to the evidence base corrupts the dataset the demotion rule reads.
 field_log_path() { printf '%s/%s-field-log.md' "$FIXROOT" "$(basename "$1")"; }
 
-log_line() { # log_line <repo_dir> <gate-verdict> [chunk] [ceremony-ok]
-  printf '2026-07-28 | %s | %s | gate:%s | oracle-caught:y(2) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:%s | context:none | chafe: none' \
-    "$(basename "$1")" "${3:-01-x}" "$2" "${4:-y}"
+log_line() { # log_line <repo_dir> <gate-verdict> [chunk] [ceremony-ok] [closed]
+  printf '2026-07-28 | %s | %s | gate:%s | oracle-caught:y(2) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:%s | closed:%s | context:none | chafe: none' \
+    "$(basename "$1")" "${3:-01-x}" "$2" "${4:-y}" "${5:-pending}"
 }
 
 write_field_log() { # write_field_log <repo_dir> [line...]
@@ -927,13 +927,13 @@ expect "44 unfilled placeholder in the entry: log fails" 1 "unfilled placeholder
 d="$(new_fixture case44b 'bash tests/chunk/oracle.sh' tracked trivial)"
 quiet_check "$d" bypass "rename the timeout constant"
 fl_bypass() { # fl_bypass <chafe-text>
-  printf '2026-07-28 | %s | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | context:none | chafe: %s' \
+  printf '2026-07-28 | %s | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | closed:pending | context:none | chafe: %s' \
     "$(basename "$d")" "$1"
 }
 write_field_log "$d" "$(fl_bypass '?')"
 expect "44b unanswered chafe: log refuses the line" 1 "unfilled placeholder" -- \
   chunk_check "$d" log --log-path "$(field_log_path "$d")"
-write_field_log "$d" "2026-07-28 | $(basename "$d") | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | context:none | chafe:"
+write_field_log "$d" "2026-07-28 | $(basename "$d") | 01-x | gate:none | oracle-caught:n/a | freeze-trip:n/a | scope-dev:n | bypass:y | ceremony-ok:y | closed:pending | context:none | chafe:"
 expect "44b empty chafe: log refuses the line too" 1 "unfilled placeholder" -- \
   chunk_check "$d" log --log-path "$(field_log_path "$d")"
 write_field_log "$d" "$(fl_bypass 'why does readiness gate test_paths before it reaches the bypass rule?')"
@@ -1573,27 +1573,82 @@ assert_absent "68e status does not flag an ordinary stamp" "$out" "ONE-PASS"
 #      manual counter feeding the one mechanism that adapts ceremony downward
 #      from data. The log stays the data; the script does the arithmetic.
 #      gate:none is excluded but does not break the run; adjust and reject
-#      both reset it; approve and auto-pass extend it.
+#      both reset it; approve and auto-pass extend it — but only once the
+#      chunk has survived a feature-close (see 67b).
 d="$(new_fixture case67)"
 quiet_check "$d" readiness; quiet_check "$d" freeze
 implement "$d"
 quiet_check "$d" verify
+fl="$(field_log_path "$d")"
 write_field_log "$d" \
-  "$(log_line "$d" approve 00-a)" \
-  "$(log_line "$d" adjust 00-b)" \
-  "$(log_line "$d" approve 00-c)" \
-  "$(log_line "$d" none 00-d)" \
-  "$(log_line "$d" auto-pass 00-e)" \
-  "$(log_line "$d" approve 01-x)"
-out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"; rc=$?
+  "$(log_line "$d" approve   00-a y clean)" \
+  "$(log_line "$d" adjust    00-b y clean)" \
+  "$(log_line "$d" approve   00-c y clean)" \
+  "$(log_line "$d" none      00-d y clean)" \
+  "$(log_line "$d" auto-pass 00-e y clean)" \
+  "$(log_line "$d" approve   01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"; rc=$?
 assert_eq "67 log passes with the entry present" "$rc" "0"
 assert_contains "67 streak computed: adjust resets it, none is excluded" "$out" "demotion streak: 3"
 write_field_log "$d" \
-  "$(log_line "$d" approve 00-a)" \
-  "$(log_line "$d" reject 00-b)" \
-  "$(log_line "$d" approve 01-x)"
-out="$(chunk_check "$d" log --log-path "$(field_log_path "$d")" 2>&1)"
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" reject  00-b y clean)" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
 assert_contains "67 reject resets the streak too" "$out" "demotion streak: 1"
+
+# 67b — the streak counts SHIPPED quality, not gate verdicts. It used to count
+#       a chunk the moment its gate was recorded, which is before anyone but
+#       the author has read the code — so the 20th consecutive "clean" gated
+#       chunk was one that shipped two regressions, and it was that chunk that
+#       made the demotion rule eligible to fire (2026-08-04,
+#       supply-chain-ops-assistant). Only closed:clean extends it now.
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" approve 00-b y clean)" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b three closed-clean chunks: streak 3" "$out" "demotion streak: 3"
+
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" approve 00-b y 'defects(2)')" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b a chunk that shipped defects resets it, gate notwithstanding" \
+  "$out" "demotion streak: 1"
+
+# pending is an UNKNOWN outcome, not a catch: it neither extends nor resets.
+# The streak recomputes from the file each run, so a pending entry that later
+# becomes defects(N) resets it retroactively and correctly.
+write_field_log "$d" \
+  "$(log_line "$d" approve 00-a y clean)" \
+  "$(log_line "$d" approve 00-b y pending)" \
+  "$(log_line "$d" approve 01-x y clean)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b pending neither extends nor resets" "$out" "demotion streak: 2"
+
+# Entries predating the field are unknown for the same reason, so a log that
+# has never been closed reads 0 rather than reading as a long clean run.
+write_field_log "$d" \
+  "2026-07-28 | $(basename "$d") | 00-a | gate:approve | oracle-caught:n(0) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:y | context:none | chafe: none" \
+  "$(log_line "$d" approve 01-x y pending)"
+out="$(chunk_check "$d" log --log-path "$fl" 2>&1)"
+assert_contains "67b an entry with no closed: field does not extend the streak" \
+  "$out" "demotion streak: 0"
+
+# 67c — `log` requires the field, written as pending. Optional-by-omission is
+#       how the old streak came to count chunks nobody had reviewed.
+write_field_log "$d" \
+  "2026-07-28 | $(basename "$d") | 01-x | gate:approve | oracle-caught:n(0) | freeze-trip:n | scope-dev:n | bypass:n | ceremony-ok:y | context:none | chafe: none"
+expect "67c an entry with no closed: field is refused" 1 "no closed: field" -- \
+  chunk_check "$d" log --log-path "$fl"
+write_field_log "$d" "$(log_line "$d" approve 01-x y 'sort of')"
+expect "67c an illegal closed: value is refused" 1 "illegal closed: value" -- \
+  chunk_check "$d" log --log-path "$fl"
+write_field_log "$d" "$(log_line "$d" approve 01-x y pending)"
+expect "67c closed:pending is a legal answer at log time" 0 "closed:pending" -- \
+  chunk_check "$d" log --log-path "$fl"
 
 # 69 — the candidates ledger's escalation rule, read rather than remembered.
 #      CANDIDATES.md says "second incident in a class -> mechanism, in that

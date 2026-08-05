@@ -159,6 +159,13 @@ act on:
   the pack didn't carry: y/n. That second half is the only observation that can
   ever retire or repair a pack; "the pack was loaded" on its own is attendance,
   not evidence.
+- Post-close outcome: **always `pending` here.** Every other field in the entry
+  is the author reporting on their own work before anyone else has read it;
+  `closed:` is the one field written afterwards, by `feature-close`, and at
+  retro time its honest value is "not known yet". Write it anyway — `log`
+  requires it. A field that must be filled in as unknown is a field somebody
+  has to come back and answer, and the alternative was a streak that counted
+  chunks nobody had reviewed.
 
 Then `chafe:` — free text, one *line* in the parsing sense (no literal
 newline; the log reads one line per chunk) but not one sentence: the condensed

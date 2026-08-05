@@ -38,6 +38,53 @@ collection error with no node-id is still one) in `bin/test-chunk-check.sh`.
 Both mutation-tested: reverting the discriminator reddens 27b, re-nesting the
 check under node-id capture reddens 27 and 27c.
 
+## 2026-08-04 — the demotion streak counts shipped quality, not gate verdicts
+
+The streak was wrong in both directions at once, which means it was not a
+quality measure at all — and it had just reached n=20, the threshold at which
+the demotion rule becomes eligible to retire the plan gate.
+
+**It overcounted the chunk.** The 20th consecutive clean gated chunk logged
+`gate:approve · oracle-caught:n(0) · freeze-trip:n · scope-dev:n ·
+ceremony-ok:y` — as clean as an entry gets — and had shipped two regressions,
+one of which executed an unattended inventory-zeroing path. Nothing in the entry
+is written after the code is exercised by anyone but its author, so nothing
+could have said so.
+
+**It undercounts the gate.** On that same chunk, the plan gate prevented a real
+shippable defect (an id-width trap that passes all 51 frozen tests and fails the
+repo's own fixtures) via plan prose — no `adjust`, no red→green iteration. A
+gate that catches something that way is indistinguishable from a gate that did
+nothing, and it pushes the streak *toward* retiring itself.
+
+Both halves get treated, differently, because only one is mechanisable.
+
+The undercount is named rather than fixed: the log header now says plainly that
+the number measures **"did the human change the plan at the gate"** — a
+reasonable proxy for "is the gate changing outcomes" and no proxy whatsoever for
+"is the work good." A plan that was right the first time *because* the gate
+forced the analysis leaves the same trace as one that was right by luck, and no
+field can separate them.
+
+The overcount is fixed. Entries carry `closed:pending|clean|defects(N)`, placed
+before `context:` (it has to precede `chafe:`, which is last and free text and
+is where the parser stops). `audit-implementation` writes `pending` and `log`
+*requires* it — optional-by-omission is precisely how the streak came to count
+unreviewed chunks. `feature-close` resolves it. `field_log_streak` counts only
+`closed:clean`; `defects(N)` resets alongside `adjust`/`reject`; `pending` and
+absent are unknowns that neither extend nor reset.
+
+**The honest cost, since it is a real one:** no existing entry has the field, so
+the streak reads `0` the day this lands and stays near zero until features start
+closing. That retires a 20-chunk streak by assertion rather than by evidence.
+It is the right trade only because of what the streak turned out to be measuring
+— but it is a reset, and the log header records it as one rather than letting
+the number quietly restart.
+
+Cases 67b and 67c in `bin/test-chunk-check.sh` (260 → 267). Mutation-tested
+three ways: dropping the `closed:` requirement, making `defects` stop resetting,
+and letting any outcome extend the streak each turn the suite red.
+
 ## 2026-08-04 — exclusions get checked, because nothing else checks them
 
 Non-negotiable #1 puts an executable oracle behind every acceptance criterion.

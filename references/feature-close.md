@@ -51,6 +51,24 @@ independent whole-diff review:
   a read-once report.
 - **Context packs are harvested and then restored** — see below. This is the
   stage that hands pack maintenance back to whatever owns it.
+- **Every chunk's field-log entry gets its `closed:` field resolved.** Each
+  chunk in this feature was logged `closed:pending`; set it now to `clean` if
+  the review found nothing against that chunk, or `defects(N)` for N findings
+  attributable to it. Cite the artifact in the same edit.
+
+  This is the only observation in the whole log written after the code has been
+  read by someone who did not write it, and the demotion streak counts nothing
+  else. Before it existed, a chunk's entry was final at its own review gate, so
+  the 20th consecutive maximally-clean gated chunk was one that had shipped two
+  regressions — and that was the chunk on which the demotion rule became
+  eligible to fire. Resolving these is not bookkeeping; it is the entire input
+  to the mechanism that decides how much ceremony to keep.
+
+  Edit the log with Write or Edit, never a shell `>>` — the same constraint as
+  the original append. One consequence to know rather than work around: each
+  chunk's `state.json.field_log.line` still holds the pre-edit text, and is now
+  stale. Nothing reads it after `gate approved` has stamped the chunk `done`,
+  which is why this is named here instead of engineered around.
 
 ## Context packs: harvest, then restore
 

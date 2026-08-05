@@ -469,7 +469,7 @@ resolve_log_path() {
 # Find this chunk's entry and report what is wrong with it if anything is.
 # A line belongs to this chunk when its first three pipe-separated fields are a
 # date, this repo and this chunk — the entry format's own leading columns.
-FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
+FL_LINE=""; FL_GATE=""; FL_CLOSED=""; FL_PLACEHOLDERS=""
 # The `gate:` value the field-log entry must carry, DERIVED from state rather
 # than transcribed from it. It is deliberately not `.gates.plan`: `freeze`
 # refuses the verdict `adjust` ("apply it and re-gate; freeze records approval
@@ -502,26 +502,51 @@ expected_field_log_gate() {
 # this is the arithmetic. gate:none never counts (bypassed chunks are
 # evidence about proportionality, not about the gate); adjust and reject
 # reset the run; approve and auto-pass extend it.
+#
+# § What `closed:` changed, 2026-08-04. The streak used to count a chunk the
+# moment its gate was recorded — which is before anyone but the author has read
+# the code. It was therefore wrong in both directions at once, and a number
+# wrong in both directions is not a quality measure:
+#
+#   - it UNDERCOUNTS the gate. A plan gate that prevents a defect via prose,
+#     with no `adjust` and no red→green iteration, looks identical to a gate
+#     that did nothing — and pushes the streak *toward* retiring itself.
+#   - it OVERCOUNTS the chunk. The 20th consecutive clean gated chunk, logged
+#     `oracle-caught:n(0) · scope-dev:n · gate:approve`, had shipped two
+#     regressions. Nothing in the entry is written after the code is exercised
+#     by anyone but its author, so nothing could say so.
+#
+# So a chunk now extends the streak only once it has survived a `feature-close`
+# and been marked `closed:clean`. `closed:defects(N)` resets it. `closed:pending`
+# and an absent field are *unknown* — they neither extend nor reset, because an
+# unknown is not a catch. The streak is recomputed from the file on every run, so
+# a pending entry that later becomes `defects(2)` resets it retroactively and
+# correctly.
 field_log_streak() { # field_log_streak <log-path>
   awk -F'|' '
     $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][ \t]*$/ && NF >= 4 {
-      gate = ""
+      gate = ""; closed = ""
       for (i = 4; i <= NF; i++) {
         if ($i ~ /^[ \t]*chafe:/) break
         if ($i ~ /^[ \t]*gate:/) {
           gate = $i; sub(/^[ \t]*gate:/, "", gate); sub(/[ \t]+$/, "", gate)
-          break
+        }
+        if ($i ~ /^[ \t]*closed:/) {
+          closed = $i; sub(/^[ \t]*closed:/, "", closed); sub(/[ \t]+$/, "", closed)
         }
       }
       if (gate == "adjust" || gate == "reject") streak = 0
-      else if (gate == "approve" || gate == "auto-pass") streak++
+      else if (gate == "approve" || gate == "auto-pass") {
+        if (closed ~ /^defects/)   streak = 0
+        else if (closed == "clean") streak++
+      }
     }
     END { print streak + 0 }
   ' "$1"
 }
 
 scan_field_log() { # scan_field_log <log-path>
-  FL_LINE=""; FL_GATE=""; FL_PLACEHOLDERS=""
+  FL_LINE=""; FL_GATE=""; FL_CLOSED=""; FL_PLACEHOLDERS=""
   local scanned
   scanned="$(awk -F'|' -v repo="$(basename "$REPO_ROOT")" -v chunk="$(jget '.chunk')" '
     found { next }
@@ -555,6 +580,7 @@ scan_field_log() { # scan_field_log <log-path>
           break
         }
         if ($i ~ /^gate:/) { gate = substr($i, 6); continue }
+        if ($i ~ /^closed:/) { print "CLOSED\t" substr($i, 8); continue }
         # A field whose value is empty or still "?" is a question the retro
         # never answered. freeze refuses an unfilled predictions.md for the
         # same reason: a template standing in for a gate that happened.
@@ -569,6 +595,7 @@ scan_field_log() { # scan_field_log <log-path>
   # substitution needs no temp file, and assigns to the caller's variables.
   FL_LINE="$(printf '%s\n' "$scanned" | awk -F'\t' '$1=="LINE"{print substr($0, 6); exit}')"
   FL_GATE="$(printf '%s\n' "$scanned" | awk -F'\t' '$1=="GATE"{print $2; exit}')"
+  FL_CLOSED="$(printf '%s\n' "$scanned" | awk -F'\t' '$1=="CLOSED"{print $2; exit}')"
   FL_PLACEHOLDERS="$(printf '%s\n' "$scanned" \
     | awk -F'\t' '$1=="PLACEHOLDER"{p = p (p ? ", " : "") $2} END{print p}')"
   [ -n "$FL_LINE" ]
@@ -1422,6 +1449,21 @@ log)
       esac
       [ -z "$FL_PLACEHOLDERS" ] \
         || fail "the field-log entry has unfilled placeholder(s): $FL_PLACEHOLDERS — an unanswered observation is not an observation"
+      # `closed:` is the chunk's post-review outcome and cannot be known yet —
+      # `feature-close` fills it in later. Requiring it here anyway, as
+      # `pending`, is the point: optional-by-omission is exactly how the old
+      # streak came to count chunks nobody had reviewed. A field that must be
+      # written as unknown is a field someone has to come back and answer.
+      case "$FL_CLOSED" in
+        pending|clean|defects\(*\)) pass "field-log entry carries closed:$FL_CLOSED" ;;
+        "") fail "the field-log entry has no closed: field — write 'closed:pending' now;"
+            fail "  feature-close sets it to clean or defects(N) once the cumulative diff has"
+            fail "  been reviewed by someone who did not write it. The demotion streak counts"
+            fail "  only chunks that survived that review, because a gate verdict recorded"
+            fail "  before anyone else read the code is not evidence about the code." ;;
+        *)  fail "the field-log entry has an illegal closed: value ('closed:$FL_CLOSED')"
+            fail "  expected one of: pending | clean | defects(N)" ;;
+      esac
       if [ "$FAIL" -eq 0 ]; then
         if jset '.field_log = {path: $p, line: $l, gate: $g, recorded: $now}' \
             --arg p "$log_path" --arg l "$FL_LINE" --arg g "$FL_GATE"; then
