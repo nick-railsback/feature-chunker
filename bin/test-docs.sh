@@ -338,12 +338,30 @@ assert_eq "the README links to that tree rather than redrawing it" \
 # silently omits a file is the same class as the install command that silently
 # omitted the ledger: a claim about what exists, going stale without a reader.
 
-LAYOUT="$(md_section "$ROOT/README.md" "Repository layout")"
-[ -n "$LAYOUT" ] && ok "README.md states a repository layout" \
+# The needle is a whole row inside the fence, not a substring of the section,
+# and both halves of that mattered. `chunk-check.sh` is a substring of
+# `test-chunk-check.sh`, so deleting the row for the one script this check most
+# exists to protect left all three assertions green. And `md_section` runs to
+# the next `## `, sweeping in the trailing prose — which says `bin/test-docs.sh`
+# — so deleting the entire diagram still left that row's check green on the
+# mention alone. Both reproduced by mutation (2026-08-07 PR review, finding 6).
+layout_rows() { # layout_rows <file> — the leading token of each row in the fence
+  md_section "$1" "Repository layout" | awk '
+    /^```/ { inb = !inb; next }
+    inb && NF { print $1 }
+  '
+}
+
+LAYOUT_ROWS="$(layout_rows "$ROOT/README.md")"
+[ -n "$LAYOUT_ROWS" ] && ok "README.md states a repository layout" \
   || no "README.md states a repository layout"
 for f in "$ROOT"/bin/*.sh; do
   b="$(basename "$f")"
-  assert_contains "README's repository layout names bin/$b" "$LAYOUT" "$b"
+  if printf '%s\n' "$LAYOUT_ROWS" | grep -qxF -- "$b"; then
+    ok "README's repository layout names bin/$b"
+  else
+    no "README's repository layout names bin/$b — no such row in the layout diagram"
+  fi
 done
 
 # --- the shipped seed carries what the changelog says it carries ------------
