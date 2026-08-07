@@ -37,14 +37,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: fixture suite — bin/test-chunk-check.sh
+        run: bash bin/test-chunk-check.sh
+
       # Both suites run even when the first goes red. "Where it failed" is the
       # distinction this repository keeps insisting matters more than "whether"
       # — a run that stops at the first failure hides the rest of the picture
       # for that push, and the next push starts from a partial answer.
-      - name: fixture suite — bin/test-chunk-check.sh
-        if: ${{ !cancelled() }}
-        run: bash bin/test-chunk-check.sh
-
+      #
+      # The guard belongs on this step and only this one. A step with no `if`
+      # carries an implicit success(); supplying one replaces it rather than
+      # adding to it. The only step preceding the fixture suite is the checkout,
+      # so carrying the same guard up there bought nothing and cost something:
+      # its sole effect was to run the suite against a checkout that had already
+      # failed, reporting "bin/test-chunk-check.sh: No such file or directory"
+      # over the top of the real cause. That is exactly the failure this file
+      # names elsewhere — a check that cannot say why it failed.
       - name: doctrine checks — bin/test-docs.sh
         if: ${{ !cancelled() }}
         run: bash bin/test-docs.sh
