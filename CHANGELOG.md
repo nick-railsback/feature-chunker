@@ -7,6 +7,34 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — three contracts the README stated without their exceptions
+
+The README restates SKILL.md's non-negotiables and op semantics in parallel
+prose, and the copies had drifted three ways. All three survived two dedicated
+"bring the README in step" commits in two days (`22172db`, `91891a6`), which is
+the argument for a comparator rather than a third resync.
+
+**#7 dropped `--downgrade`.** It said `bypass` "refuses from any stage past
+`ready`" flat, while the README's own op table eighteen lines later documented
+`--downgrade` as the exit from exactly that. A reader who stopped at the
+non-negotiable concluded a mis-sized frozen chunk had no way out, when the
+correction is the designed one.
+
+**#6 dropped the 2026-07-31 softening.** It presented predict-then-compare
+unqualified after blind predictions had been narrowed to `standard` chunks.
+
+**SKILL.md's `audit-readiness` row was stale in the other direction.** It told
+the operator to run the suite by hand before `bypass`; the 2026-08-02 change
+made `bypass` run `suite_cmd` itself and record the exit code in
+`bypass_suite`, specifically so it would stop being a step someone was told to
+remember. The routing surface was still asking for the manual motion.
+
+All three are now checked in `bin/test-docs.sh` — as presence of the
+qualification, never as matching prose. The two documents are deliberately
+different lengths, and a text comparison would be a style gate, which is the
+kind people learn to route around. What the checks refuse is one document
+stating a rule while the other states its exception.
+
 ## 2026-08-07 — the checks run on push, not on remembering
 
 There was no CI. The 278-assertion fixture suite ran when someone typed `bash

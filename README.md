@@ -162,13 +162,17 @@ findings-remediation workflow.
    execute the plan, the chunk is too big — split it.
 5. **Scope is declared, then enforced.** The diff must stay inside the declared
    paths. Expansion is a stop-and-surface, not a judgment call.
-6. **Two human gates, both instrumented.** Predict-then-compare on the plan;
-   review-before-commit on the diff. Gates earn their keep via the field log or
-   get demoted — by data, not by mood.
+6. **Two human gates, both instrumented.** Predict-then-compare on the plan —
+   blind on `standard` chunks, where `chunk-check.sh predict` stamps the
+   predictions before the plan is read; `small` chunks gate on read-and-verdict
+   alone (softened 2026-07-31). Review-before-commit on the diff. Gates earn
+   their keep via the field log or get demoted — by data, not by mood.
 7. **Ceremony must be proportionate.** Trivial work bypasses the lifecycle. The
    `bypass` op requires `size_class` to be exactly `trivial` and refuses from any
    stage past `ready`, so the escape hatch cannot quietly become "skip the
-   ceremony, I'm in a hurry."
+   ceremony, I'm in a hurry." Correcting an over-escalation spotted later is the
+   one exception, and it is explicit rather than quiet: `--downgrade` is legal
+   from any pre-`done` stage and records that the correction happened.
 
 ---
 

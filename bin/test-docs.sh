@@ -55,6 +55,21 @@ assert_absent() { # assert_absent <label> <haystack> <needle>
   else ok "$1"; fi
 }
 
+assert_contains() { # assert_contains <label> <haystack> <needle>
+  if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else
+    no "$1"
+    printf '        looking for: %s\n' "$3"
+  fi
+}
+
+md_section() { # md_section <file> <heading-text> — body up to the next '## '
+  awk -v h="$2" '
+    !inb && /^#+ / && index($0, h) { inb=1; next }
+    inb && /^## / { exit }
+    inb { print }
+  ' "$1"
+}
+
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/chunkdocs.XXXXXX")" || { echo "cannot create scratch dir"; exit 2; }
 trap 'rm -rf "$SCRATCH"' EXIT INT TERM
 
@@ -117,6 +132,43 @@ got="$(cd "$INST" 2>/dev/null && ls -A | LC_ALL=C sort | tr '\n' ' ')"
 # reversion to excludes even if the exclude list were complete on the day.
 assert_eq "the install contains exactly what the README says it contains" \
   "$got" "CANDIDATES.md SKILL.md bin references templates "
+
+# --- contracts restated in two places ---------------------------------------
+# Each of these is a qualification the script implements and SKILL.md states,
+# which the README's parallel copy dropped. They are checked as presence of the
+# qualification, never as matching prose: the two documents are deliberately
+# different lengths, and a text comparison would be a style gate that people
+# learn to route around. What must not happen is one document stating a rule
+# while the other states its exception — a README-first reader then learns a
+# model the script contradicts. All three found by the 2026-08-05 audit (F4),
+# which also found the maintenance cost already paid: two dedicated "bring the
+# README in step" commits in two days, with these three surviving both.
+
+NONNEG="$(md_section "$ROOT/README.md" "The seven non-negotiables")"
+[ -n "$NONNEG" ] && ok "README.md states the non-negotiables" \
+  || no "README.md states the non-negotiables"
+
+# #7 said bypass "refuses from any stage past ready" flat, while the op table
+# eighteen lines later documented --downgrade as the exit from exactly that.
+# A reader who stopped at the non-negotiable concluded a mis-sized frozen chunk
+# had no way out, when the correction is the designed one.
+assert_contains "README's non-negotiables name --downgrade, the exit from an over-escalation" \
+  "$NONNEG" "--downgrade"
+
+# #6 presented predict-then-compare unqualified after the 2026-07-31 softening
+# made blind predictions gate 'standard' chunks only.
+assert_contains "README's non-negotiables name the standard-only blind prediction" \
+  "$NONNEG" "standard"
+
+# SKILL.md's audit-readiness row told the operator to run the suite by hand
+# before bypass. The 2026-08-02 change made bypass run it and record the exit
+# code in bypass_suite — "that the script runs it is the point", precisely so it
+# stops being a step someone was told to remember.
+SKILL_OPS="$(md_section "$ROOT/SKILL.md" "Operations — load only the stage in play")"
+[ -n "$SKILL_OPS" ] && ok "SKILL.md states the operations table" \
+  || no "SKILL.md states the operations table"
+assert_absent "SKILL.md does not ask for a manual suite run before bypass (bypass runs it)" \
+  "$SKILL_OPS" "run the suite"
 
 # --- CI runs every checker --------------------------------------------------
 # A checker nothing runs automatically is an instruction to remember, which is

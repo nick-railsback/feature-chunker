@@ -95,7 +95,7 @@ fourteen field-log entries.
 
 | Operation | When | Read |
 |---|---|---|
-| `audit-readiness` | Before planning: is this chunk fit to plan, is disk consistent with state, is baseline green? **Skip for `trivial` — run the suite and go straight to `bypass`** | `references/audit-readiness.md` |
+| `audit-readiness` | Before planning: is this chunk fit to plan, is disk consistent with state, is baseline green? **Skip for `trivial` — go straight to `bypass`, which runs `suite_cmd` itself and records the exit code** | `references/audit-readiness.md` |
 | `plan` | Chunk is `ready`: write red tests + cold-executable plan, run the human plan gate, freeze the oracle | `references/plan.md` |
 | `implement` | Chunk is `approved`: execute the plan to green without touching the oracle | `references/implement.md` |
 | `audit-implementation` | Implementation done: deterministic verify, package for human review before commit, run the retro | `references/audit-implementation.md` |
