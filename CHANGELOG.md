@@ -7,6 +7,20 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the script's two self-descriptions, held identical
+
+`chunk-check.sh`'s line-3 usage comment listed eight ops. `usage()`, fifteen
+lines below it, listed nine. `predict` landed on 2026-08-03 with the schema 9 →
+10 migration and only `usage()` was updated (2026-08-05 audit, F7).
+
+Trivial in effect — nothing reads the comment but a human, and the human who
+calls the script wrong gets `usage()`'s correct list. Worth an entry for what it
+demonstrates: the two lists sit eighteen lines apart in one file, which is as
+close as two statements of a contract can be, and they still drifted for four
+days. Proximity is not a comparator. `bin/test-docs.sh` extracts both lists and
+asserts they are identical, which is the same answer this remediation reached
+three other times today.
+
 ## 2026-08-07 — the streak-pooling caveat reaches the shipped seed
 
 The 2026-08-03 entry records the operator-local field-log header gaining a

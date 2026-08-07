@@ -260,6 +260,29 @@ SEED_RULE="$(md_section "$ROOT/templates/field-log.md" "Demotion rule")"
 assert_contains "the seed's demotion rule carries the streak-pooling caveat" \
   "$SEED_RULE" "pooled"
 
+# --- the script's two self-descriptions agree -------------------------------
+# Line 3's usage comment is the first thing a reader of chunk-check.sh sees;
+# usage() fifteen lines below is what the script prints when it is called wrong.
+# They are two statements of one list, and they disagreed: `predict` landed on
+# 2026-08-03 (schema 9 -> 10) and only usage() was updated (2026-08-05 audit,
+# F7). The same class as the README/SKILL.md divergences, inside a single file,
+# eighteen lines apart — which is the argument that proximity is not a
+# comparator and never was.
+
+ops_list() { # ops_list <file> <line-regex> — the <a|b|c> op list on the first match
+  grep -m1 -E "$2" "$1" | sed -n 's/.*<\([a-z|]*\)>.*/\1/p'
+}
+
+HEADER_OPS="$(ops_list "$ROOT/bin/chunk-check.sh" '^# Usage: chunk-check\.sh')"
+USAGE_OPS="$(ops_list "$ROOT/bin/chunk-check.sh" '^usage\(\)')"
+
+[ -n "$HEADER_OPS" ] && ok "chunk-check.sh's header comment states its op list" \
+  || no "chunk-check.sh's header comment states its op list"
+[ -n "$USAGE_OPS" ] && ok "chunk-check.sh's usage() states its op list" \
+  || no "chunk-check.sh's usage() states its op list"
+assert_eq "chunk-check.sh's header op list matches usage()'s" \
+  "$HEADER_OPS" "$USAGE_OPS"
+
 # --- CI runs every checker --------------------------------------------------
 # A checker nothing runs automatically is an instruction to remember, which is
 # the whole of finding F3 and the thing this repository argues against

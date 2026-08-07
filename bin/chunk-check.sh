@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # chunk-check.sh — deterministic backstop for the feature-chunker lifecycle.
-# Usage: chunk-check.sh <readiness|freeze|verify|log|gate|bypass|block|status>
+# Usage: chunk-check.sh <readiness|predict|freeze|verify|log|gate|bypass|block|status>
 #          <chunk-dir> [args]
+# This list and usage()'s are held identical by bin/test-docs.sh — they drifted
+# once, eighteen lines apart, which is how little proximity is worth.
 #
 # Guarantees live here as executed code, not as prose asking anyone to be
 # careful. No -e: every diagnostic prints; failures are counted and reported.
