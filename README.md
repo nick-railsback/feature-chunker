@@ -388,9 +388,8 @@ From a clone of this repository — what installs is `SKILL.md`, `CANDIDATES.md`
 ```zsh
 rm -rf ~/.claude/skills/feature-chunker
 mkdir -p ~/.claude/skills/feature-chunker
-rsync -a --exclude '.DS_Store' \
-      SKILL.md CANDIDATES.md bin references templates \
-      ~/.claude/skills/feature-chunker/
+git ls-files -z --error-unmatch SKILL.md CANDIDATES.md bin references templates \
+  | rsync -a --files-from=- --from0 . ~/.claude/skills/feature-chunker/
 ```
 
 **It names what ships rather than excluding what does not**, and that is the
@@ -400,6 +399,15 @@ editing it. That is not hypothetical — the exclude form this replaced shipped 
 `.claude/` directory and a stray `docs/` tree while still claiming "nothing
 else". `bin/test-docs.sh` extracts this exact block, runs it, and compares the
 result against that sentence, so the claim and the command cannot drift apart.
+
+**`git ls-files` decides what those names cover**, because naming five paths
+still left a denylist one level down: rsync does not read `.gitignore`, so a
+`__pycache__` under `references/` or an editor swapfile under `bin/` shipped
+into real installs and broke the file count below on any clone that happened to
+be dirty. The tracked set is the only definition of "what this repository is"
+that cannot silently acquire a member. `--error-unmatch` keeps the wrong-
+directory paste loud — it names every path it could not find and exits non-zero,
+where a bare copy would quietly install nothing.
 
 **The destination is cleared first**, because an allowlist governs only what
 rsync sends and says nothing about what is already at the other end. Upgrading

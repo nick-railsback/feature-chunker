@@ -22,9 +22,8 @@ From a clone of this repository, copy it to `~/.claude/skills/feature-chunker/`:
 ```zsh
 rm -rf ~/.claude/skills/feature-chunker
 mkdir -p ~/.claude/skills/feature-chunker
-rsync -a --exclude '.DS_Store' \
-      SKILL.md CANDIDATES.md bin references templates \
-      ~/.claude/skills/feature-chunker/
+git ls-files -z --error-unmatch SKILL.md CANDIDATES.md bin references templates \
+  | rsync -a --files-from=- --from0 . ~/.claude/skills/feature-chunker/
 ```
 
 This block and the README's are checked byte-identical by `bin/test-docs.sh`,
@@ -39,6 +38,14 @@ It names what ships rather than excluding what does not. An exclude list is a
 denylist — anything later added to the repo root installs by default, which is
 how the previous form came to ship a `.claude/` directory and a stray `docs/`
 tree in an artifact whose whole argument is that nothing unexamined ships.
+
+`git ls-files` decides what those five names cover. Naming directories was still
+a denylist one level down: rsync does not read `.gitignore`, so a `__pycache__`
+under `references/`, or a swapfile under `bin/`, shipped into every install made
+from a clone that happened to be dirty. The tracked set is the one definition of
+this repository's contents that cannot silently gain a member, and
+`--error-unmatch` keeps a wrong-directory paste loud rather than installing
+nothing in silence.
 
 The destination is cleared first because an allowlist governs only what rsync
 sends, not what is already at the other end: upgrading in place carried those

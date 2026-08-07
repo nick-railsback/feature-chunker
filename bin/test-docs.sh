@@ -32,10 +32,12 @@ PASSED=0; FAILED=0
   printf 'ERROR %s\n' "no README.md at $ROOT — test-docs.sh checks the repository's prose surfaces; run it from a clone" >&2
   exit 2
 }
-command -v rsync >/dev/null 2>&1 || {
-  printf 'ERROR %s\n' "rsync is required (the install checks run the documented command)" >&2
-  exit 2
-}
+for tool in rsync git; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    printf 'ERROR %s\n' "$tool is required (the install checks run the documented command)" >&2
+    exit 2
+  }
+done
 
 ok()  { printf 'ok    %s\n' "$1"; PASSED=$((PASSED+1)); }
 no()  { printf 'FAIL  %s\n' "$1"; FAILED=$((FAILED+1)); }
@@ -195,6 +197,45 @@ fi
 assert_eq "re-running the install over an older one leaves a fresh install's tree" \
   "$(cd "$UPINST" 2>/dev/null && find . | LC_ALL=C sort)" \
   "$(cd "$INST"   2>/dev/null && find . | LC_ALL=C sort)"
+
+# --- the install ships tracked files only ------------------------------------
+# The allowlist names directories, and rsync does not read .gitignore, so
+# everything untracked under bin/, references/ or templates/ shipped into real
+# installs — a directory allowlist is still a denylist one level down. It also
+# broke the exact file-count assertion below on any locally dirty clone, giving
+# a failure that accuses the documentation when the clone is merely dirty
+# (2026-08-07 PR review, finding 4).
+#
+# Checked against the source's OWN tracked set rather than a list of stray
+# shapes. Naming .pytest_cache and __pycache__ here would rebuild the denylist
+# inside the check: the next stray nobody predicted still ships, and the check
+# still says nothing. `scratch-notes.md` below is seeded precisely because no
+# exclude list would ever have named it.
+
+STRAYSRC="$SCRATCH/dirty-clone"
+git clone --no-hardlinks --quiet "$ROOT" "$STRAYSRC" 2>/dev/null || true
+if [ -d "$STRAYSRC/.git" ]; then
+  mkdir -p "$STRAYSRC/references/__pycache__" "$STRAYSRC/bin/.pytest_cache"
+  touch "$STRAYSRC/references/__pycache__/setup.cpython-312.pyc" \
+        "$STRAYSRC/bin/.pytest_cache/CACHEDIR.TAG" \
+        "$STRAYSRC/bin/.chunk-check.sh.swp" \
+        "$STRAYSRC/templates/scratch-notes.md"
+
+  STRAYHOME="$SCRATCH/dirty-home"
+  mkdir -p "$STRAYHOME"
+  ( cd "$STRAYSRC" && HOME="$STRAYHOME" bash -c "$readme_cmd" ) >/dev/null 2>&1
+  STRAYINST="$STRAYHOME/.claude/skills/feature-chunker"
+
+  ( cd "$STRAYINST" 2>/dev/null && find . -type f | sed 's|^\./||' | LC_ALL=C sort ) \
+    > "$SCRATCH/installed.txt"
+  ( cd "$STRAYSRC" && git ls-files -- SKILL.md CANDIDATES.md bin references templates \
+    | LC_ALL=C sort ) > "$SCRATCH/tracked.txt"
+
+  assert_eq "the install from a dirty clone ships nothing the clone does not track" \
+    "$(comm -23 "$SCRATCH/installed.txt" "$SCRATCH/tracked.txt")" ""
+else
+  no "the install ships tracked files only — could not clone $ROOT to check"
+fi
 
 # --- the one cheaply checkable number ---------------------------------------
 # The README said "sixteen files, ~150 KB" in a document that stakes its
