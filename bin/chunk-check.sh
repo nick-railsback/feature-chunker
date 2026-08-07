@@ -1646,8 +1646,11 @@ bypass)
     # from. The freeze evidence is left in place on purpose: `test_hashes` and
     # `oracle_red` are the receipt for what the over-escalation cost.
     case "$stage" in
-      done)     fail "--downgrade is legal from any stage before 'done'; found 'done' — a closed chunk is not re-opened here" ;;
-      bypassed) fail "--downgrade is legal from any stage before 'done'; found 'bypassed' — this chunk is already bypassed" ;;
+      # Not "legal from any stage before 'done'" — 'bypassed' is before 'done'
+      # and is refused on the next line, so saying so here contradicted the
+      # refusal it was attached to. Each arm names its own reason instead.
+      done)     fail "--downgrade corrects an over-escalation while the chunk is open; found 'done' — a closed chunk is not re-opened here" ;;
+      bypassed) fail "--downgrade corrects an over-escalation; found 'bypassed' — this chunk is already bypassed, so there is none left to correct" ;;
       *)        pass "bypass --downgrade legal from stage '$stage'" ;;
     esac
     [ "$size_class" != "trivial" ] \

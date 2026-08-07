@@ -352,6 +352,26 @@ for pair in "README:$README_GATE" "SKILL.md:$SKILL_GATE"; do
     "$body" "premature"
 done
 
+# "`--downgrade` is legal from any pre-`done` stage" was flatly false in three
+# places, against two refusals the fixture suite has pinned all along: case 55c
+# refuses it on an already-bypassed chunk (which is pre-`done`) and case 55a
+# refuses it when size_class is already `trivial`, where plain `bypass` is the
+# op. Documentation contradicting a test that already exists is the cheapest
+# divergence there is to find and the least excusable to keep.
+# Found 2026-08-07 (PR review, finding 10).
+
+README_DOWNGRADE="$( { md_section "$ROOT/README.md" "The seven non-negotiables"
+                       grep -F '| `bypass` |' "$ROOT/README.md"; } | squash )"
+SKILL_DOWNGRADE="$(skill_bullet 'bypass "<what>"' | squash)"
+
+for pair in "README:$README_DOWNGRADE" "SKILL.md:$SKILL_DOWNGRADE"; do
+  doc="${pair%%:*}"; body="${pair#*:}"
+  assert_contains "$doc's --downgrade contract excludes an already bypassed chunk" \
+    "$body" "already bypassed"
+  assert_contains "$doc's --downgrade contract excludes an already trivial chunk" \
+    "$body" "already trivial"
+done
+
 SKILL_OPS="$(md_section "$ROOT/SKILL.md" "Operations — load only the stage in play")"
 [ -n "$SKILL_OPS" ] && ok "SKILL.md states the operations table" \
   || no "SKILL.md states the operations table"

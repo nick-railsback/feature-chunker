@@ -172,7 +172,9 @@ findings-remediation workflow.
    stage past `ready`, so the escape hatch cannot quietly become "skip the
    ceremony, I'm in a hurry." Correcting an over-escalation spotted later is the
    one exception, and it is explicit rather than quiet: `--downgrade` is legal
-   from any pre-`done` stage and records that the correction happened.
+   from any stage before `done` — except on a chunk already bypassed, or one
+   already trivial, where there is no over-escalation left to correct — and it
+   records that the correction happened.
 
 ---
 
@@ -190,7 +192,7 @@ an agent to be careful.
 | `verify` | the frozen test-hash map still matches exactly — no pinned file modified, and none added or removed under `test_paths` — the frozen `oracle_cmd` — **the same string** — now exits zero with no `FAILED` or `ERROR` of its own and every red node-id reported `PASSED`, the diff stays inside declared scope, and the suite is green. A commit before the review gate is *recorded* as `gates.review=premature`, not refused; `gate approved` is where it must be answered for |
 | `log` | the retro's field-log line is really on disk, carries the `gate:` verdict the state actually recorded, and leaves no field unanswered |
 | `gate <verdict>` | the stage is `verified` or `bypassed` — it cannot be used to skip the verification it is supposed to follow — and `approved` additionally requires the field-log entry, plus a note acknowledging the early commit whenever `gates.review` is `premature` |
-| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or any pre-`done` stage with `--downgrade`, which corrects an over-escalation and records that it happened |
+| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or, with `--downgrade`, any stage before `done` other than a chunk already bypassed or already trivial, which corrects an over-escalation and records that it happened |
 | `block` / `status` | — (record a blocker with a required reason; print state) |
 
 **Each op's full contract — every clause, and the incident that earned it — is

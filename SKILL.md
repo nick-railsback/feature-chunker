@@ -226,9 +226,10 @@ prose asking anyone to be careful.
   in `bypass_suite`, so the trivial path's baseline evidence is a fact on disk
   rather than a step someone was told to remember; it does not *gate* on the
   result, because a red baseline predates the chunk. `--downgrade` is the
-  correction for an over-escalation spotted later: legal from any pre-`done`
-  stage, sets `size_class` to `trivial` and records the correction. It skips
-  `verify`, never the review gate
+  correction for an over-escalation spotted later: legal from any stage before
+  `done` except a chunk already bypassed or already trivial — neither has an
+  over-escalation left to correct — and it sets `size_class` to `trivial` and
+  records the correction. It skips `verify`, never the review gate
 - `block "<reason>"` — stage `blocked`
 - `status` — print the chunk's state
 
