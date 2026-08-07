@@ -7,6 +7,26 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the one cheaply checkable number, measured instead of recalled
+
+The README said the install was "sixteen files, ~150 KB". The 2026-08-05 audit
+weighed it: 329 KB. The figure had been true before the fixture suite grew from
+91 assertions to 273, and false ever since, in a document that stakes its
+framework-comparison table on "numbers taken, not recalled".
+
+The cost is not the number. It is that a reviewer who checks the single number
+they *can* check finds it wrong, and then has no reason to extend credit to the
+8.8–13.7× and 18–32× figures beside it, which nothing in the repository lets
+them verify. One stale measurement discredits every honest one next to it.
+
+`bin/test-docs.sh` now measures it: it runs the documented install command,
+counts the files and weighs the bytes, and holds the README's sentence to the
+result — 18 files, ~356 KB today, both moved by this remediation. The file count
+is exact. The size is held to ±10 KB, which is what the "~" is worth: gating on
+the byte would redden CI on every script edit and teach people to bump the
+number without reading it, which is how a number stops being a measurement in
+the first place.
+
 ## 2026-08-07 — the README summarises and links where it used to restate
 
 Fixing the three divergences below treated instances. This treats the source.

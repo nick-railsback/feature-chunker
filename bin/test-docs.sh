@@ -133,6 +133,41 @@ got="$(cd "$INST" 2>/dev/null && ls -A | LC_ALL=C sort | tr '\n' ' ')"
 assert_eq "the install contains exactly what the README says it contains" \
   "$got" "CANDIDATES.md SKILL.md bin references templates "
 
+# --- the one cheaply checkable number ---------------------------------------
+# The README said "sixteen files, ~150 KB" in a document that stakes its
+# comparison table on "numbers taken, not recalled". Measured at the 2026-08-05
+# audit: 329 KB. It had been stale by more than 2x since the suite grew from 91
+# assertions to 273, and a reviewer who checks the one number they can check
+# finds it wrong — which taxes the credibility of every adjacent number they
+# cannot check. That is the actual cost of a stale measurement in a document
+# arguing from measurements.
+#
+# So it is measured from the install this file just built, rather than recalled.
+# The file count is exact. The size is held to +/-10 KB, which is what the "~"
+# in the claim is worth: gating on the byte would redden CI on every edit to a
+# script and teach people to bump the number without reading it, which is how a
+# number stops being a measurement again.
+
+claim="$(grep -F 'installs into' "$ROOT/README.md" | head -1)"
+[ -n "$claim" ] && ok "README states what the install weighs" \
+  || no "README states what the install weighs"
+
+claim_files="$(printf '%s' "$claim" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) files.*/\1/p')"
+claim_kb="$(printf '%s' "$claim"    | sed -n 's/.*[^0-9]\([0-9][0-9]*\) KB.*/\1/p')"
+
+real_files="$(find "$INST" -type f | wc -l | tr -d ' ')"
+real_kb="$(( $(find "$INST" -type f -exec wc -c {} + \
+             | awk '$2 != "total" { s += $1 } END { print s+0 }') / 1024 ))"
+
+assert_eq "the README's install file count is the install's" "$claim_files" "$real_files"
+
+if [ -n "$claim_kb" ] \
+   && [ "$(( claim_kb > real_kb ? claim_kb - real_kb : real_kb - claim_kb ))" -le 10 ]; then
+  ok "the README's install size is within 10 KB of measured (~$claim_kb KB vs $real_kb KB)"
+else
+  no "the README's install size is within 10 KB of measured (claims ~${claim_kb:-none} KB, measured $real_kb KB)"
+fi
+
 # --- contracts restated in two places ---------------------------------------
 # Each of these is a qualification the script implements and SKILL.md states,
 # which the README's parallel copy dropped. They are checked as presence of the
