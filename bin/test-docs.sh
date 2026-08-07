@@ -111,11 +111,34 @@ assert_eq "the two documented install commands are byte-identical" \
 assert_absent "the install does not exclude CANDIDATES.md (it carries the ledger's read path)" \
   "$readme_cmd" "CANDIDATES.md'"
 
+# rsync does not create missing parent directories of its destination, and GNU
+# rsync and macOS's disagree about it: macOS creates the whole path, GNU fails
+# with "No such file or directory". So the command ran fine on the maintainer's
+# machine and on the macOS runner, and produced an empty install on ubuntu —
+# meaning it was broken for exactly the person it is written for, someone
+# installing their first skill on a machine with no ~/.claude/skills yet. Caught
+# by the first CI run this repository ever did (2026-08-07). --mkpath would be
+# the tidier fix and needs rsync 3.2.3+, which is younger than plenty of
+# installs; mkdir -p is portable to everything.
+assert_contains "the install creates its destination (rsync will not make parents)" \
+  "$readme_cmd" "mkdir -p"
+
 # Execute it. HOME is redirected so the command's own `~/.claude/skills/...`
 # target lands in the scratch dir and the operator's real install is untouched.
-( cd "$ROOT" && HOME="$SCRATCH" bash -c "$readme_cmd" ) >/dev/null 2>&1 \
-  && ok "the documented install command runs clean" \
-  || no "the documented install command runs clean"
+# That redirection is also what makes this a real test: the scratch HOME has no
+# `.claude` tree, so the command has to work on a machine that has never had one
+# — which is exactly the machine a first-time installer is sitting at.
+#
+# The output is captured and printed on failure. It was discarded in the first
+# version of this file, and the first CI run to go red said only "the install
+# ran dirty" with rsync's reason thrown away. A check that cannot say why it
+# failed costs more than it saves.
+if install_out="$( cd "$ROOT" && HOME="$SCRATCH" bash -c "$readme_cmd" 2>&1 )"; then
+  ok "the documented install command runs clean"
+else
+  no "the documented install command runs clean"
+  printf '%s\n' "$install_out" | sed 's/^/      | /'
+fi
 
 INST="$SCRATCH/.claude/skills/feature-chunker"
 got="$(cd "$INST" 2>/dev/null && ls -A | LC_ALL=C sort | tr '\n' ' ')"

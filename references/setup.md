@@ -20,6 +20,7 @@ small-sample failure in a different costume.
 From a clone of this repository, copy it to `~/.claude/skills/feature-chunker/`:
 
 ```zsh
+mkdir -p ~/.claude/skills/feature-chunker
 rsync -a --exclude '.DS_Store' \
       SKILL.md CANDIDATES.md bin references templates \
       ~/.claude/skills/feature-chunker/

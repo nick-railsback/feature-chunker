@@ -386,6 +386,7 @@ From a clone of this repository — what installs is `SKILL.md`, `CANDIDATES.md`
 `bin/`, `references/`, `templates/`, and nothing else:
 
 ```zsh
+mkdir -p ~/.claude/skills/feature-chunker
 rsync -a --exclude '.DS_Store' \
       SKILL.md CANDIDATES.md bin references templates \
       ~/.claude/skills/feature-chunker/

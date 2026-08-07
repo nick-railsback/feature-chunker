@@ -7,6 +7,33 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the first CI run found the install broken on Linux
+
+The workflow added three entries below went red on its first execution, on the
+leg that had never run. It was not a portability wrinkle in the suite, which is
+what the entry predicted. It was the install command itself.
+
+`rsync` does not create missing parent directories for its destination, and the
+two rsyncs disagree about what that means: macOS's creates the whole path, GNU's
+fails with "No such file or directory". So `rsync … ~/.claude/skills/feature-
+chunker/` worked on the maintainer's machine and on the macOS runner, and
+produced an **empty install** on ubuntu. The command was broken for precisely
+the person it is written for — someone installing their first skill, on a
+machine with no `~/.claude/skills` yet — and had been for as long as it existed,
+in both documents, through the audit that read them and the remediation that
+rewrote them. Three humans and one auditor read that line; the first machine to
+*run* it found the bug in ninety seconds.
+
+Both blocks now open with `mkdir -p ~/.claude/skills/feature-chunker`, and
+`bin/test-docs.sh` asserts it stays. `--mkpath` would be tidier and needs rsync
+3.2.3+, which is younger than plenty of installs.
+
+The checker earned a second fix from the same failure: it ran the install with
+output discarded, so the red CI log said only that the command "ran dirty" and
+threw rsync's reason away. It now captures the output and prints it on failure.
+A check that cannot say why it failed costs more than it saves — and this is the
+repository that keeps arguing *where* it failed matters more than *whether*.
+
 ## 2026-08-07 — the script's two self-descriptions, held identical
 
 `chunk-check.sh`'s line-3 usage comment listed eight ops. `usage()`, fifteen
