@@ -1,10 +1,18 @@
 # The repository's whole argument is that a guarantee living in prose is a
-# guarantee nobody runs. Until this file existed, its own 278-assertion fixture
-# suite and its delete-the-check mutation procedure were exactly that: things
-# that happened when someone remembered them, in the skill whose thesis is that
-# instructions to remember are not mechanisms. Named by the 2026-08-05 health
-# audit (F3), which is also the audit that found two live defects the suite
-# would have kept green.
+# guarantee nobody runs. Until this file existed, its own fixture suite and its
+# delete-the-check mutation procedure were exactly that: things that happened
+# when someone remembered them, in the skill whose thesis is that instructions
+# to remember are not mechanisms. Named by the 2026-08-05 health audit (F3),
+# which is also the audit that found two live defects the suite would have kept
+# green.
+#
+# The assertion count this sentence used to carry is deliberately gone rather
+# than corrected. It was wrong on the day it was written and drifted twice more
+# inside the following week, because nothing measured it and nothing could
+# cheaply — the number only exists once the suite has run, which is a minute of
+# CI to establish a figure no decision rests on. The suite prints its own count
+# every time it runs. A number recalled in a comment beside it is exactly the
+# habit this repository spends its whole README arguing against.
 name: checks
 
 on:

@@ -152,7 +152,7 @@ stating a rule while the other states its exception.
 
 ## 2026-08-07 — the checks run on push, not on remembering
 
-There was no CI. The 278-assertion fixture suite ran when someone typed `bash
+There was no CI. The 282-assertion fixture suite ran when someone typed `bash
 bin/test-chunk-check.sh`, and the delete-the-check mutation trial ran when
 someone read the suite header describing it. Both were prose asking to be
 remembered, in the repository whose entire argument is that prose asking to be

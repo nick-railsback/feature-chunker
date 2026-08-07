@@ -607,11 +607,13 @@ CANDIDATES.md                   # maintainer-sized proposals, with the
                                 #   entry is open at two or more sightings
 ```
 
-The part that installs into `~/.claude/skills/` is 18 files, ~368 KB —
-re-measured on every push by `bin/test-docs.sh`, which runs the install command
-above and weighs the result. The previous figure was written by hand and sat
-stale by more than 2× for as long as nobody checked it, in a document that
-stakes its comparison table on numbers taken rather than recalled. None of it is
+The part that installs into `~/.claude/skills/` is 18 files, ~371 KB — the count
+exactly and the size to ±10 KB, checked on every push by `bin/test-docs.sh`,
+which runs the install command above and weighs the result. It checks this
+sentence rather than rewriting it: the figure is still typed by hand, and what
+changed is that a wrong one now reddens CI instead of sitting here. The previous
+figure sat stale by more than 2× for as long as nobody checked it, in a document
+that stakes its comparison table on numbers taken rather than recalled. None of it is
 a runtime cost until it fires: Claude Code loads only `SKILL.md`'s frontmatter —
 this README, the reference bodies, and the templates are read on demand or not
 at all.
