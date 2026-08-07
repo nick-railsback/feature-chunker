@@ -7,6 +7,35 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the README summarises and links where it used to restate
+
+Fixing the three divergences below treated instances. This treats the source.
+The README carried second copies of SKILL.md's state tree and of every op's full
+refusal contract, with no comparator between them — and the repository has a
+demonstrated rate for that: two dedicated resync commits in two days, with three
+divergences surviving both. Its own rule, from `references/plan.md`: "Two copies
+of a rule is one too many."
+
+The state tree is now drawn once, in SKILL.md, and the README links to it,
+keeping only the part that is genuinely README-shaped — that the tree lives in
+the working directory whether or not it is committed, and why a write under `~/`
+is the silent-failure shape. The op table stays, because a table showing that
+every guarantee is a refusal in executed code is the README's argument, but each
+row is now one summarising line and the full contracts link to
+SKILL.md § The deterministic backstop.
+
+A summary that links cannot drift out of step with what it summarises. A second
+copy always can — which is the same reasoning as `spec_cmp` hard-failing on
+`spec.md`-versus-`state.json` divergence in either direction, applied at last to
+the prose. The data half of this repo has never drifted; the prose half drifted
+three ways in four days. The difference was the comparator.
+
+`bin/test-docs.sh` counts the tree: drawn once in SKILL.md, zero times in the
+README. It also asserts the repository-layout diagram names every script under
+`bin/` — it listed two of three, having gone stale the moment `test-docs.sh`
+was added by the entry two below this one. A layout diagram that silently omits
+a file is the install command's failure class in a different costume.
+
 ## 2026-08-07 — three contracts the README stated without their exceptions
 
 The README restates SKILL.md's non-negotiables and op semantics in parallel

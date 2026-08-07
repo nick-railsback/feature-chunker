@@ -170,6 +170,43 @@ SKILL_OPS="$(md_section "$ROOT/SKILL.md" "Operations — load only the stage in 
 assert_absent "SKILL.md does not ask for a manual suite run before bypass (bypass runs it)" \
   "$SKILL_OPS" "run the suite"
 
+# --- the state tree is stated once ------------------------------------------
+# The README carried a second copy of SKILL.md's state layout. Nothing compared
+# them, and the audit named this pair and the op table as the two highest-drift
+# restatements in the repository. The repo's own rule, from references/plan.md:
+# "Two copies of a rule is one too many." It applied duplicate-then-reconcile to
+# state.json — where spec_cmp hard-fails on divergence in either direction, and
+# where nothing has ever drifted — and not to its own prose.
+#
+# So the README links instead, and this counts. A summary that links cannot
+# drift out of step with what it summarises; a second copy always can.
+
+tree_blocks() { # tree_blocks <file> — fenced blocks opening with the state tree root
+  awk '
+    /^```/ { if (inb) { inb=0 } else { inb=1; first=1 } ; next }
+    inb && first { if ($0 ~ /^docs\/chunks\/<feature>\/$/) n++; first=0 }
+    END { print n+0 }
+  ' "$1"
+}
+
+assert_eq "the chunk state tree is drawn once, in SKILL.md" \
+  "$(tree_blocks "$ROOT/SKILL.md")" "1"
+assert_eq "the README links to that tree rather than redrawing it" \
+  "$(tree_blocks "$ROOT/README.md")" "0"
+
+# --- the repository layout is complete --------------------------------------
+# It listed two scripts under bin/ and there are three. A layout diagram that
+# silently omits a file is the same class as the install command that silently
+# omitted the ledger: a claim about what exists, going stale without a reader.
+
+LAYOUT="$(md_section "$ROOT/README.md" "Repository layout")"
+[ -n "$LAYOUT" ] && ok "README.md states a repository layout" \
+  || no "README.md states a repository layout"
+for f in "$ROOT"/bin/*.sh; do
+  b="$(basename "$f")"
+  assert_contains "README's repository layout names bin/$b" "$LAYOUT" "$b"
+done
+
 # --- CI runs every checker --------------------------------------------------
 # A checker nothing runs automatically is an instruction to remember, which is
 # the whole of finding F3 and the thing this repository argues against

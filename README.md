@@ -184,14 +184,20 @@ an agent to be careful.
 
 | Op | Refuses to proceed unless… |
 |---|---|
-| `readiness` | `baseline_sha` resolves to a real commit; `spec.md`'s four fenced blocks equal their `state.json` counterparts **in both directions**; the declared `artifacts` mode matches what git is actually doing; `scope_paths` and `test_paths` are non-empty; `size_class` is one of three values; no `## Out of scope` exclusion asserts something about existing behaviour without citing a test or marking itself `(unverified)`; the baseline suite is green. Then it pins the baseline SHA and branch. |
-| `predict` | The stage is `ready`; `predictions.md`'s top half is filled and its verdict is still blank — a file filled in one pass, verdict included, is refused, because it records a gate outcome about a plan that did not yet exist. Then it stamps the top half's hash into `state.json`, noting whether a plan draft was on disk. |
-| `freeze` | The plan gate ran and returned `approve` (an `adjust` or `reject` verdict is refused outright, and an untouched `predictions.md` template is refused); the `predict` stamp exists on a `standard` chunk and any existing stamp's top half is byte-identical; all four spec blocks agree with state; `oracle_cmd` **executes with a non-zero exit**; no test reported `PASSED` in that run; no `ERROR` line appears in it. Then it hash-pins every tracked file under `test_paths` and records the red node-ids. |
-| `verify` | Every pinned test file is byte-identical; no test file was added or removed under `test_paths`; every changed path since baseline falls inside declared scope; the frozen `oracle_cmd` — **the same string** — now exits zero with every frozen red node-id reported `PASSED`; the full suite is green; no commits exist that the review gate has not approved. |
-| `log` | The chunk's field-log line is really on disk, carries the `gate:` verdict the state actually recorded (derived, so an adjusted gate cannot be logged as a clean approval), carries a legal `closed:` value, and leaves no field unanswered. It also prints the demotion streak — computed from the entries rather than hand-maintained, and counting only chunks a `feature-close` later marked `closed:clean` — and warns while any `CANDIDATES.md` entry is still open at two or more sightings. |
-| `gate <verdict>` | The stage is `verified` or `bypassed`. It cannot be used to skip the verification it is supposed to follow. |
-| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or, with `--downgrade`, any pre-`done` stage: an over-escalation is corrected and recorded rather than ground through gates nobody needs. |
+| `readiness` | recorded state reconciles with disk **in both directions**, every declared field is legal, no `## Out of scope` exclusion asserts something about existing behaviour uncited, and the baseline suite is green |
+| `predict` | `predictions.md`'s top half is filled while its verdict is still blank — a file filled in one pass records a gate outcome about a plan that did not yet exist, and is refused |
+| `freeze` | the plan gate ran and returned `approve`, all four spec blocks agree with state, and `oracle_cmd` **executes red** with nothing green at birth and no collection `ERROR` |
+| `verify` | every pinned test file is byte-identical, the frozen `oracle_cmd` — **the same string** — now exits zero with every red node-id reported `PASSED`, the diff stays inside declared scope, the suite is green, and no commit precedes the review gate |
+| `log` | the retro's field-log line is really on disk, carries the `gate:` verdict the state actually recorded, and leaves no field unanswered |
+| `gate <verdict>` | the stage is `verified` or `bypassed` — it cannot be used to skip the verification it is supposed to follow |
+| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or any pre-`done` stage with `--downgrade`, which corrects an over-escalation and records that it happened |
 | `block` / `status` | — (record a blocker with a required reason; print state) |
+
+**Each op's full contract — every clause, and the incident that earned it — is
+in [SKILL.md § The deterministic backstop](SKILL.md#the-deterministic-backstop).**
+The table above summarises deliberately rather than restating: the restatement
+is what drifted, twice in two days, and a summary that links cannot fall out of
+step with what it summarises.
 
 Three of those deserve to be called out, because they are the ones that close
 loopholes rather than check boxes:
@@ -541,28 +547,17 @@ means restarting the chunk, not keeping its approval.
 
 ### State in the target repo
 
-```
-docs/chunks/<feature>/
-  feature.md              # epic: goal, constraints, sources, artifacts mode,
-                          #   context packs, chunk queue
-  <nn>-<slug>/
-    spec.md               # contract: goal, binary acceptance criteria (each
-                          #   citing its source), declared scope, test paths,
-                          #   size class
-    plan.md               # cold-executable plan + deviations log
-    predictions.md        # the human's pre-read predictions (plan gate)
-    retro.md              # audit-implementation findings
-    state.json            # stage, SHAs, branch, artifacts mode, oracle hashes
-                          #   + red evidence — script-managed
-    oracle-red.log        # the freeze-time red run — script-written
-    oracle-green.log      # the verify-time green run — script-written
-```
+Every chunk is a directory under `docs/chunks/<feature>/` holding its spec,
+plan, predictions and retro alongside a script-managed `state.json` and the two
+captured oracle runs. **The tree is drawn in
+[SKILL.md § State layout](SKILL.md#state-layout-in-the-target-repo)** — once,
+because it used to be drawn twice and the copies were what drifted.
 
-This tree is **in the repo working directory** whether or not it is committed.
-Never outside it: `chunk-check.sh` refuses a chunk directory outside the repo
-root, and an agent's write sandbox is typically the working directory, so state
-written under `~/` gets denied — and a denied write that looks like it worked is
-how state silently stops being kept.
+What matters here rather than there: the tree lives **in the repo working
+directory** whether or not it is committed, never outside it. `chunk-check.sh`
+refuses a chunk directory outside the repo root, and an agent's write sandbox is
+typically the working directory, so state written under `~/` gets denied — and a
+denied write that looks like it worked is how state silently stops being kept.
 
 ---
 
@@ -580,6 +575,8 @@ references/
 bin/
   chunk-check.sh                # the deterministic backstop — every guarantee
   test-chunk-check.sh           # the backstop's own oracle
+  test-docs.sh                  # the prose surfaces' oracle: the install
+                                #   command, and the contracts stated twice
 templates/
   feature.md  spec.md  plan.md  predictions.md  retro.md  state.json  field-log.md
 CHANGELOG.md                    # every earned change, cited to its incident
