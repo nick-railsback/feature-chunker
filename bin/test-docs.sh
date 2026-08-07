@@ -118,6 +118,24 @@ got="$(cd "$INST" 2>/dev/null && ls -A | LC_ALL=C sort | tr '\n' ' ')"
 assert_eq "the install contains exactly what the README says it contains" \
   "$got" "CANDIDATES.md SKILL.md bin references templates "
 
+# --- CI runs every checker --------------------------------------------------
+# A checker nothing runs automatically is an instruction to remember, which is
+# the whole of finding F3 and the thing this repository argues against
+# everywhere else. Adding bin/test-<something>.sh and wiring it into no workflow
+# would reproduce that quietly, so the wiring is asserted rather than trusted.
+
+WORKFLOW="$ROOT/.github/workflows/checks.yml"
+if [ -f "$WORKFLOW" ]; then
+  ok "a CI workflow exists"
+  for f in "$ROOT"/bin/test-*.sh; do
+    b="$(basename "$f")"
+    if grep -qF "bin/$b" "$WORKFLOW"; then ok "CI runs bin/$b"
+    else no "CI runs bin/$b — it is a checker nothing runs on push"; fi
+  done
+else
+  no "a CI workflow exists at .github/workflows/checks.yml"
+fi
+
 # --- summary ----------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"

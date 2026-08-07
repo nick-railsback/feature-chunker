@@ -1,0 +1,57 @@
+# The repository's whole argument is that a guarantee living in prose is a
+# guarantee nobody runs. Until this file existed, its own 278-assertion fixture
+# suite and its delete-the-check mutation procedure were exactly that: things
+# that happened when someone remembered them, in the skill whose thesis is that
+# instructions to remember are not mechanisms. Named by the 2026-08-05 health
+# audit (F3), which is also the audit that found two live defects the suite
+# would have kept green.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    name: suites (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both legs report. A macOS-only failure is the interesting one — the
+      # suite claims to run "anywhere git and jq do", and this is what holds it
+      # to that. The maintainer develops on macOS, so ubuntu is the leg that
+      # covers the platform nobody was testing on.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both suites run even when the first goes red. "Where it failed" is the
+      # distinction this repository keeps insisting matters more than "whether"
+      # — a run that stops at the first failure hides the rest of the picture
+      # for that push, and the next push starts from a partial answer.
+      - name: fixture suite — bin/test-chunk-check.sh
+        if: ${{ !cancelled() }}
+        run: bash bin/test-chunk-check.sh
+
+      - name: doctrine checks — bin/test-docs.sh
+        if: ${{ !cancelled() }}
+        run: bash bin/test-docs.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --severity=warning is the gate deliberately, not laziness. Both scripts
+      # carry info-level findings on purpose: SC2016 fires on every
+      # single-quoted jq filter, where non-expansion is the entire point, and
+      # SC2015 on the `[ test ] && pass || fail` idiom used throughout. Gating
+      # on info would mean either papering over real advice with disable
+      # directives or rewriting correct code to please a linter — and a gate
+      # people route around is worse than one pitched where it can hold.
+      - name: shellcheck
+        run: shellcheck --severity=warning bin/*.sh

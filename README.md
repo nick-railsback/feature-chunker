@@ -1,5 +1,7 @@
 # feature-chunker
 
+[![checks](https://github.com/nick-railsback/feature-chunker/actions/workflows/checks.yml/badge.svg)](https://github.com/nick-railsback/feature-chunker/actions/workflows/checks.yml)
+
 **Agile for agents.** A feature becomes documented *chunks*; each chunk moves
 through staged, resumable checkpoints where every transition is made by a script
 rather than by an agent's opinion of its own work.

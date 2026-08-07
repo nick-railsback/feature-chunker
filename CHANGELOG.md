@@ -7,6 +7,47 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the checks run on push, not on remembering
+
+There was no CI. The 278-assertion fixture suite ran when someone typed `bash
+bin/test-chunk-check.sh`, and the delete-the-check mutation trial ran when
+someone read the suite header describing it. Both were prose asking to be
+remembered, in the repository whose entire argument is that prose asking to be
+remembered is not a mechanism — structurally the same as the field-log append
+that sat unwired for months. Named by the 2026-08-05 audit (F3), which is also
+the audit that found two live defects a green suite had been keeping quiet.
+
+`.github/workflows/checks.yml` runs both suites and shellcheck on every push and
+pull request. Three things about how it is pitched:
+
+**Both suites run even when the first goes red** (`if: ${{ !cancelled() }}`).
+*Where* it failed is the distinction this repo keeps insisting matters more than
+*whether* — a run that stops at the first failure returns a partial answer, and
+the next push starts from that partial answer.
+
+**Two runners.** The maintainer develops on macOS, so ubuntu is the leg covering
+the platform nothing was ever tested on, and the pair is what holds the suite to
+its own claim of running "anywhere git and jq do". `fail-fast: false`, because a
+one-platform failure is the interesting one and cancelling the other leg hides
+which platform it was.
+
+**shellcheck gates at `--severity=warning`.** Both scripts carry info-level
+findings deliberately: SC2016 fires on every single-quoted jq filter, where
+non-expansion is the entire point, and SC2015 on the `[ test ] && pass || fail`
+idiom used throughout. Gating on info would mean papering over real advice with
+disable directives, or rewriting correct code to please a linter. A gate people
+route around is worse than one pitched where it can hold.
+
+`bin/test-docs.sh` now asserts that every `bin/test-*.sh` appears in the
+workflow. Adding a checker and wiring it into nothing is precisely the failure
+this entry is about, and it would otherwise be silent — the same silence F2 was.
+
+**Not yet verified on Linux.** The workflow parses, and every command in it
+passes on macOS, but the ubuntu leg has never run: no container was available to
+rehearse it locally. The first push is the first evidence. If it goes red, the
+thing to expect is BSD-versus-GNU divergence in `awk`, `sed`, `sort` or `ls`,
+not a real defect in the checks.
+
 ## 2026-08-07 — one install command, and it ships the ledger
 
 There were two documented install commands with two different results. The
