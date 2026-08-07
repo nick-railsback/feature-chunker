@@ -357,7 +357,12 @@ if [ -f "$WORKFLOW" ]; then
   ok "a CI workflow exists"
   for f in "$ROOT"/bin/test-*.sh; do
     b="$(basename "$f")"
-    if grep -qF "bin/$b" "$WORKFLOW"; then ok "CI runs bin/$b"
+    # The invocation, not the mention. `bin/$b` alone is satisfied by the step's
+    # own `name:` line — both of them read "… — bin/test-*.sh" — so the check
+    # certified a workflow with every `run:` line deleted, which is finding F3
+    # reproduced inside the check written to prevent it. A checker nothing runs
+    # is the thing being tested for; a name is not a runner.
+    if grep -qF "run: bash bin/$b" "$WORKFLOW"; then ok "CI runs bin/$b"
     else no "CI runs bin/$b — it is a checker nothing runs on push"; fi
   done
 else
