@@ -7,6 +7,50 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — one install command, and it ships the ledger
+
+There were two documented install commands with two different results. The
+README's excluded `CANDIDATES.md`; `references/setup.md`'s shipped it, along
+with four repo-only files. `chunk-check.sh` resolves the ledger relative to the
+installed script, and `candidates_overdue` opens with `[ -f "$1" ] || return 0`
+— correct behaviour, and indistinguishable from an empty backlog. So every
+install made from the README had the escalation warning wired to a file that was
+not there, and nothing said so. That mechanism was built on 2026-08-04 in
+response to an entry that sat "overdue" at three sightings while the class it
+described shipped two regressions; it has not been able to fire in a documented
+install since the day it was written.
+
+It was invisible in the one environment that exercised it. The maintainer's
+install at `~/.claude/skills/feature-chunker/` is a git clone — it carries
+`CANDIDATES.md` because it carries everything — so it followed neither command
+and could not show the difference.
+
+Both documents now state one command, and it **names what ships instead of
+excluding what does not**. That half is not cosmetic. An exclude list is a
+denylist, so the README's "and nothing else" sentence decayed every time
+anything appeared at the repo root without anyone editing the sentence: by
+2026-08-07 the command shipped a `.claude/` directory and a stray untracked
+`docs/` tree while still claiming otherwise. A denylist cannot hold a "nothing
+else" claim; only an allowlist can.
+
+**`bin/test-docs.sh` is new** — the reconciliation this repo had for its data
+and not for its prose. It extracts the install block from both documents,
+asserts they are byte-identical, runs the README's verbatim with `HOME`
+redirected at a scratch dir, and compares the resulting tree against the
+sentence that describes it. The documentation is the subject rather than a
+paraphrase of it: restating the command inside the checker would have been a
+third copy of the contract, drifting the way the first two did.
+
+Case 69b in `bin/test-chunk-check.sh` pins the resolution itself. All nine of
+case 69's assertions override `CHUNK_CHECK_CANDIDATES`, so the `SKILL_ROOT`
+branch every real install takes had no case at all — and this suite runs from
+the repo, where the ledger is always present, which is exactly how the breakage
+stayed green. 69b runs `log` from a scratch skill root instead. Mutation-tested:
+deleting the `SKILL_ROOT` default leaves all nine of case 69's assertions
+passing and reddens only 69b. Its second half asserts the *silence* when the
+ledger is absent, which is what makes the install checks load-bearing rather
+than decorative — nothing else would notice the mechanism gone.
+
 ## 2026-08-07 — the green-at-birth refusal, hoisted the way the ERROR check was
 
 The 2026-08-04 entry below hoisted the collection-ERROR check out of the

@@ -370,21 +370,35 @@ Skills. The harness itself is a standalone script — nothing in
 
 ### 1. The skill
 
-From a clone of this repository — what installs is `SKILL.md`, `references/`,
-`bin/`, `templates/`, and nothing else:
+From a clone of this repository — what installs is `SKILL.md`, `CANDIDATES.md`,
+`bin/`, `references/`, `templates/`, and nothing else:
 
 ```zsh
-rsync -a --exclude '.git' --exclude '.DS_Store' \
-      --exclude 'README.md' --exclude 'LICENSE' \
-      --exclude 'CHANGELOG.md' --exclude 'CANDIDATES.md' \
-      --exclude '.gitignore' \
-      ./ ~/.claude/skills/feature-chunker/
+rsync -a --exclude '.DS_Store' \
+      SKILL.md CANDIDATES.md bin references templates \
+      ~/.claude/skills/feature-chunker/
 ```
 
-The excludes matter: a repo-only file riding along is noise in an artifact
-whose whole argument is that nothing unexamined ships. The repo is canonical and
-the installed copy is an install, not a fork — improvements land here, versioned,
-and re-run the rsync (CHANGELOG.md is the record of what changed and why).
+**It names what ships rather than excluding what does not**, and that is the
+point: an exclude list is a denylist, so anything later added to the repo root
+installs by default and the sentence above stops being true without anyone
+editing it. That is not hypothetical — the exclude form this replaced shipped a
+`.claude/` directory and a stray `docs/` tree while still claiming "nothing
+else". `bin/test-docs.sh` extracts this exact block, runs it, and compares the
+result against that sentence, so the claim and the command cannot drift apart.
+
+**`CANDIDATES.md` ships**, and is the one non-obvious member of that list. It is
+not repo-only bookkeeping: `chunk-check.sh` resolves it relative to the
+installed script, and `log` reads it to print the candidate classes that have
+reached the escalation threshold. An install without it loses that warning in
+silence — `candidates_overdue` treats a missing ledger as "nothing overdue",
+which is correct behaviour and indistinguishable from an empty backlog. The
+genuinely repo-only files are the ones with no read path from the harness:
+`README.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore`.
+
+The repo is canonical and the installed copy is an install, not a fork —
+improvements land here, versioned, and re-run the rsync (CHANGELOG.md is the
+record of what changed and why).
 
 **User-level is the default, and the design assumes it.** The field log lives
 outside both the skill directory and any repo because the evidence base spans

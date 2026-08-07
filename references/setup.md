@@ -17,15 +17,26 @@ user-level one improves. Take it deliberately, and move the field log into the
 repo (see § The field log) — a per-developer log across a team is the same
 small-sample failure in a different costume.
 
-Copy this directory to `~/.claude/skills/feature-chunker/`:
+From a clone of this repository, copy it to `~/.claude/skills/feature-chunker/`:
 
-```
-rsync -a --exclude '.DS_Store' --exclude '.pytest_cache' --exclude '__pycache__' \
-  <src>/ ~/.claude/skills/feature-chunker/
+```zsh
+rsync -a --exclude '.DS_Store' \
+      SKILL.md CANDIDATES.md bin references templates \
+      ~/.claude/skills/feature-chunker/
 ```
 
-The excludes matter: a stray `.DS_Store` or cache directory riding along is
-noise in an artifact whose whole argument is that nothing unexamined ships.
+This block and the README's are checked byte-identical by `bin/test-docs.sh`,
+which also runs it and compares the result against what the README claims
+installs. They were two different commands with two different results until
+2026-08-07, and the difference was `CANDIDATES.md`: the README's excluded it, so
+every install made from the README had a ledger read path pointing at a file
+that was not there. `candidates_overdue` treats a missing ledger as "nothing
+overdue", so the escalation warning simply never fired and nothing said so.
+
+It names what ships rather than excluding what does not. An exclude list is a
+denylist — anything later added to the repo root installs by default, which is
+how the previous form came to ship a `.claude/` directory and a stray `docs/`
+tree in an artifact whose whole argument is that nothing unexamined ships.
 
 The field log is **not** part of this copy — it lives at
 `~/.claude/feature-chunker-field-log.md` and survives reinstall untouched;

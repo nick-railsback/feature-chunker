@@ -1777,6 +1777,55 @@ out="$(chunk_check_cand "$d" "$FIXROOT/case69-absent.md" log --log-path "$fl" 2>
 assert_eq     "69 a missing ledger is silent, not an error" "$rc" "0"
 assert_absent "69 and prints no escalation warning"         "$out" "escalation rule"
 
+# 69b — the DEFAULT resolution, which is the branch that actually shipped
+#       broken. Every assertion above overrides CHUNK_CHECK_CANDIDATES, so the
+#       SKILL_ROOT branch — the one every real install takes — had no case at
+#       all, and this suite runs from the repo, where the ledger is always
+#       present. That is how a documented install command excluding
+#       CANDIDATES.md disabled the escalation warning in every install made from
+#       it while the suite stayed green (2026-08-05 audit, F2). The script is
+#       run here from a scratch skill root, the way an install runs it.
+skill_root="$FIXROOT/skillroot"
+mkdir -p "$skill_root/bin"
+cp "$CHECK" "$skill_root/bin/chunk-check.sh"
+printf '%s\n' \
+  '## Open' \
+  '' \
+  '### Cross-chunk caller sweep' \
+  '' \
+  'Status: open · Occurrences: 3 · Last: 2026-08-02 skill-engine 21-eval-runs' \
+  > "$skill_root/CANDIDATES.md"
+
+d="$(new_fixture case69b)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" verify
+write_field_log "$d" "$(log_line "$d" approve 01-x)"
+fl="$(field_log_path "$d")"
+
+# The `unset` is the point of the case, not housekeeping: with the variable
+# inherited from the operator's environment this would quietly re-test the
+# override that case 69 already covers, and pass while proving nothing.
+installed_log() { # installed_log — run `log` through the scratch skill root
+  ( cd "$d" && unset CHUNK_CHECK_CANDIDATES
+    bash "$skill_root/bin/chunk-check.sh" log "$CHUNK" --log-path "$fl" 2>&1 )
+}
+
+out="$(installed_log)"
+assert_contains "69b the ledger resolves beside the installed script, no override" \
+  "$out" "Cross-chunk caller sweep"
+assert_contains "69b and it is the installed copy that was read" \
+  "$out" "$skill_root/CANDIDATES.md"
+
+# The other half of the finding, and the reason it stayed invisible for three
+# days: an install that omits the ledger degrades in perfect silence. Asserting
+# the silence is what makes the install checks in bin/test-docs.sh load-bearing
+# — nothing else anywhere would notice the mechanism was gone.
+rm -f "$skill_root/CANDIDATES.md"
+out="$(installed_log)"; rc=$?
+assert_eq     "69b an install missing the ledger still succeeds" "$rc" "0"
+assert_absent "69b and says nothing about the mechanism it lost" "$out" "escalation rule"
+
 # 70 — out-of-scope exclusions that assert facts about existing behaviour.
 #      Non-negotiable #1 puts an oracle behind every acceptance criterion and
 #      nothing behind an exclusion — which is where a wrong belief is most
