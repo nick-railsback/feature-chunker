@@ -599,7 +599,7 @@ CANDIDATES.md                   # maintainer-sized proposals, with the
                                 #   entry is open at two or more sightings
 ```
 
-The part that installs into `~/.claude/skills/` is 18 files, ~356 KB —
+The part that installs into `~/.claude/skills/` is 18 files, ~368 KB —
 re-measured on every push by `bin/test-docs.sh`, which runs the install command
 above and weighs the result. The previous figure was written by hand and sat
 stale by more than 2× for as long as nobody checked it, in a document that

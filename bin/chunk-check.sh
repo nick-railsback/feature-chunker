@@ -258,6 +258,20 @@ oracle_error_lines() {
 
 ids_to_json() { jq -R -s 'split("\n") | map(select(length > 0)) | unique'; }
 
+# One shape, four sites: a status the log reports that the exit code denies.
+# `freeze` refuses a red run reporting PASSED (green at birth) or ERROR (red for
+# the wrong reason); `verify` refuses a green run reporting FAILED or ERROR.
+# Three of the four were open-coded as this same block and the fourth pair was
+# simply absent, so verify inspected its green log for nothing at all whenever
+# no red node-ids had been frozen. Naming the shape once is what stops the next
+# op inheriting a partial copy of it — the failure mode this file has now had
+# three times (2026-08-04, 2026-08-05, 2026-08-07).
+refuse_hits() { # refuse_hits <headline> <hits> — fail and list them, if any
+  [ -n "$2" ] || return 0
+  fail "$1"
+  printf '%s\n' "$2" | sed 's/^/        /'
+}
+
 path_allowed() { # path_allowed <path> — under scope_paths, test_paths, or chunk docs
   local p="$1" e
   while IFS= read -r e; do
@@ -1215,11 +1229,8 @@ freeze)
   # had pinned the check on a fixture whose ERROR line happened to carry a
   # node-id — which made it reachable and the gap invisible, the "passes for the
   # wrong reason" class this suite's header warns about. Found 2026-08-04.
-  err_lines="$(oracle_error_lines "$red_log")"
-  if [ -n "$err_lines" ]; then
-    fail "the red run reports collection/setup ERRORs — red for the wrong reason:"
-    printf '%s\n' "$err_lines" | sed 's/^/        /'
-  fi
+  refuse_hits "the red run reports collection/setup ERRORs — red for the wrong reason:" \
+    "$(oracle_error_lines "$red_log")"
 
   # Green at birth, checked at EVERY node-id tier — the same hoist, for the same
   # reason, as the ERROR scan above. This one was left nested when that one was
@@ -1232,10 +1243,8 @@ freeze)
   # (health audit F1); pinned by case 26b, which case 26 cannot reach because
   # birth.sh always leaves a FAILED id behind to make the branch reachable.
   green_at_birth="$(oracle_ids "$red_log" PASSED)"
-  if [ -n "$green_at_birth" ]; then
-    fail "green-at-birth tests — these passed before the feature exists, so they assert nothing:"
-    printf '%s\n' "$green_at_birth" | sed 's/^/        /'
-  fi
+  refuse_hits "green-at-birth tests — these passed before the feature exists, so they assert nothing:" \
+    "$green_at_birth"
 
   red_ids="$(oracle_ids "$red_log" FAILED; oracle_ids "$red_log" ERROR)"
   red_ids="$(printf '%s' "$red_ids" | sort -u)"
@@ -1375,6 +1384,21 @@ verify)
     fi
     if run_oracle "$green_log"; then
       pass "oracle green (evidence in $CHUNK_REL/oracle-green.log)"
+
+      # The mirror of freeze's two scans, and unconditional for the same reason
+      # they are. An exit code is the wrapper's; a FAILED or ERROR line is the
+      # suite's, and it is the suite that was asked. Both of these sat only on
+      # the red log until 2026-08-07, and the PASSED scan below sits inside
+      # `n_red > 0` — so a chunk frozen at the exit-code tier had its green run
+      # inspected by nothing whatsoever, and at the node-id tier a test that
+      # broke beside the frozen ids was invisible so long as those ids cleared.
+      # "Did the frozen red turn green" is not "is this run green"; only the
+      # first was being asked. Cases 11b and 11c.
+      refuse_hits "the oracle exited 0 while reporting FAILED tests — the exit code is the wrapper's, not the suite's:" \
+        "$(oracle_ids "$green_log" FAILED)"
+      refuse_hits "the oracle exited 0 while reporting collection/setup ERRORs — green for the wrong reason:" \
+        "$(oracle_error_lines "$green_log")"
+
       [ "$evidence_tier" = "legacy" ] || evidence_tier="exit-code"
       red_json="$(jq -c '(.oracle_red.node_ids // []) | unique' "$STATE")"
       # `$a | length`, not bare `length`: under -n the input is null and bare

@@ -313,6 +313,35 @@ new_fixture() { # new_fixture <name> [oracle_cmd] [tracked|untracked] [size_clas
     'exit 1' \
     > "$repo_dir/tests/chunk/allpass.sh"
 
+  # The mirror of allpass.sh, one op to the right: honest red at freeze (no
+  # output at all, so the exit-code tier), then a green run whose exit code is
+  # the wrapper's and whose output is the suite's. Carries both contradictions
+  # a green run can hold — a FAILED node-id and a collection ERROR. See case 11b.
+  printf '%s\n' \
+    'if [ -f src/feature.txt ]; then' \
+    '  echo "PASSED tests/chunk/t.py::test_a"' \
+    '  echo "FAILED tests/chunk/t.py::test_b - still absent"' \
+    '  echo "ERROR tests/chunk/t.py::test_c - fixture (db) not found"' \
+    '  exit 0' \
+    'fi' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/dishonest.sh"
+
+  # Node-id tier, and still dishonest: the frozen red ids do turn green, and a
+  # third test fails beside them in the same run. nodes.sh cannot reach this —
+  # its green branch reports nothing but PASSED. See case 11c.
+  printf '%s\n' \
+    'if [ -f src/feature.txt ]; then' \
+    '  echo "PASSED tests/chunk/t.py::test_a"' \
+    '  echo "PASSED tests/chunk/t.py::test_b"' \
+    '  echo "FAILED tests/chunk/t.py::test_c - regressed"' \
+    '  exit 0' \
+    'fi' \
+    'echo "FAILED tests/chunk/t.py::test_a - feature absent"' \
+    'echo "FAILED tests/chunk/t.py::test_b - feature absent"' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/regressed.sh"
+
   # Red for the wrong reason: the tests never ran.
   printf '%s\n' \
     'echo "ERROR tests/chunk/t.py::test_a - fixture (db) not found"' \
@@ -498,6 +527,46 @@ implement "$d"
 set_state "$d" '.oracle_cmd = "true"'
 expect "11 oracle_cmd swapped after freeze: verify fails" 1 "oracle_cmd changed since freeze" -- chunk_check "$d" verify
 
+# 11b — case 26b's class, one op to the right. freeze scans the red log for
+#       ERROR and for PASSED unconditionally; verify scanned its green log for
+#       neither. `oracle_ids "$green_log" PASSED` was consulted only inside
+#       `n_red > 0`, and the FAILED and ERROR scans had exactly one call site
+#       each, both on the red log. So a chunk frozen at the exit-code tier —
+#       a legal tier, the one every exit-code-only oracle lands on — reached
+#       `verified` against a wrapper that exits 0 while its own output reports
+#       a failed test and a collection error. The exit code is the wrapper's;
+#       the FAILED line is the suite's, and it is the suite that was asked.
+#       PR #3 review, finding 2.
+d="$(new_fixture case11b 'bash tests/chunk/dishonest.sh')"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+assert_eq "11b frozen at the exit-code tier: no node-ids captured" \
+  "$(state_get "$d" '.oracle_red.node_ids | length')" "0"
+implement "$d"
+out="$(chunk_check "$d" verify 2>&1)"; rc=$?
+assert_eq       "11b green run reporting FAILED: verify fails" "$rc" "1"
+assert_contains "11b and says the exit code is not the suite's" \
+  "$out" "exited 0 while reporting FAILED"
+# Indented, per case 26b: run_oracle tees the oracle's own output into this
+# capture, so the bare node-id is present whether or not the check fires.
+assert_contains "11b naming the test that failed" "$out" "        tests/chunk/t.py::test_b"
+assert_contains "11b and the collection ERROR beside it" "$out" "green for the wrong reason"
+assert_eq       "11b the chunk is not stamped verified" "$(state_get "$d" .stage)" "approved"
+
+# 11c — and it is not only the exit-code tier. With frozen red ids present the
+#       green log IS read, but only for the PASSED that clears those ids: a
+#       test that broke alongside them reports FAILED into the same log and
+#       nothing looks. "Did the frozen red turn green" is not the question
+#       "is this run green", and only the first was ever being asked.
+d="$(new_fixture case11c 'bash tests/chunk/regressed.sh')"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+out="$(chunk_check "$d" verify 2>&1)"; rc=$?
+assert_eq       "11c a new FAILED beside passing frozen ids: verify fails" "$rc" "1"
+assert_contains "11c and the frozen ids did clear, so that is not what caught it" \
+  "$out" "frozen red node-id(s) now pass"
+assert_contains "11c naming the test that failed in this run" "$out" "        tests/chunk/t.py::test_c"
+assert_eq       "11c the chunk is not stamped verified" "$(state_get "$d" .stage)" "approved"
+
 # 12 — readiness on an in-flight chunk is reconcile-only
 d="$(new_fixture case12)"
 quiet_check "$d" readiness; quiet_check "$d" freeze
@@ -604,10 +673,11 @@ expect "20c small chunk, blanks tolerated but no Verdict: freeze refused" 1 "no 
 d="$(new_fixture case21 'bash tests/chunk/oracle.sh' untracked)"
 assert_eq "21 untracked docs: nothing under docs/chunks is tracked" "$(tracked_count "$d" docs/chunks)" "0"
 # The literal is new_fixture's oracle-script count, so it moves whenever a case
-# needs a new oracle dialect (6 -> 7 on 2026-08-07, adding allpass.sh). Left as
-# a literal deliberately: it went red the moment the count changed, which is the
-# assertion working. Deriving it from the directory would make it pass at 0 too.
-assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "7"
+# needs a new oracle dialect (6 -> 7 on 2026-08-07 adding allpass.sh, 7 -> 9 the
+# same day adding dishonest.sh and regressed.sh). Left as a literal deliberately:
+# it went red the moment the count changed, which is the assertion working.
+# Deriving it from the directory would make it pass at 0 too.
+assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "9"
 expect "21 untracked docs: readiness pins the baseline" 0 "stage=ready"    -- chunk_check "$d" readiness
 expect "21 untracked docs: freeze pins the oracle"      0 "stage=approved" -- chunk_check "$d" freeze
 implement "$d"
