@@ -7,6 +7,185 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the contracts named an op that does not perform the refusal
+
+The README's `verify` row listed "no commit precedes the review gate" under a
+header reading "Refuses to proceed unless…". `verify` performs no such refusal.
+It warns, stamps `gates.review=premature`, and still reaches `stage=verified` —
+which fixture case 15 pins on purpose, because the 2026-07-31 incident it was
+written for was a chunk whose first verify followed a commit and which therefore
+had no legal op that could move it. The refusal lives in `gate approved`, which
+will not stamp `done` without an explicit note.
+
+So the clause was asserted at the op that does not enforce it, and stated at
+neither document's row for the op that does. SKILL.md read the same way, which
+is also why the README's claim that every clause of each contract lives in
+SKILL.md was not met. The same round found `--downgrade` described as "legal
+from any pre-`done` stage" in three places, against two refusals the suite has
+pinned all along: case 55c refuses it on an already-bypassed chunk, which is
+pre-`done`, and case 55a refuses it when `size_class` is already `trivial`.
+`chunk-check.sh` carried that sentence *inside the refusal message*, asserting
+the legality of a stage in the act of refusing it.
+
+Documentation contradicting a test that already exists is the cheapest
+divergence in this repository to find and the least excusable to keep: the
+answer was sitting in the suite the whole time, and no one had asked the two to
+agree. Ten presence checks in `bin/test-docs.sh` now do, squashing line breaks
+first — the two documents wrap at different widths, and a needle that straddles
+a wrap gates layout rather than contract, which is the style-check failure that
+file's own header refuses. Caught in the act: the first run reddened on a wrap.
+
+Both documents also described `verify`'s integrity check as byte-identity of
+pinned files. It is a map comparison, so a test file *added or removed* under
+`test_paths` is refused alongside a modified one. That has always been true and
+was written down nowhere. (2026-08-07 PR review, findings 9 and 10.)
+
+## 2026-08-07 — the workflow paid twice and guarded the wrong step
+
+Two costs in the file added earlier the same day.
+
+`if: ${{ !cancelled() }}` was on both run steps. On the second that is the
+stated intent — both suites report even when the first goes red. On the first it
+was strictly harmful: a step with no `if` carries an implicit `success()`, and
+supplying one *replaces* it rather than adding to it, so the only effect was to
+run the fixture suite against a checkout that had already failed and report
+`bin/test-chunk-check.sh: No such file or directory` over the top of the real
+cause. The entry three below this one names that exact cost — a check that
+cannot say why it failed — and the workflow reintroduced it in the same commit.
+
+And `on: push` with no `branches:` key, beside `on: pull_request`, fires both
+events for every commit on a same-repo branch, which is the only flow this
+repository has. Six jobs where three suffice, including a duplicate
+`macos-latest` leg billed at the 10× minutes multiplier, with no `concurrency:`
+block, so superseded runs ran to completion against commits nobody was waiting
+on. Push is now filtered to `main`; `cancel-in-progress` is scoped to
+`pull_request` rather than set flat, because cancelling is right for a PR, where
+only the tip matters, and wrong for `main`, where each commit's run is the
+record that the commit was checked.
+
+Neither has a runnable check, and they are the only two changes in this round
+that do not: both are claims about GitHub's own semantics rather than about
+anything the two suites can reach. Validated with `actionlint` and by parsing
+the workflow to confirm the resolved step conditions and triggers.
+(2026-08-07 PR review, findings 7 and 8.)
+
+## 2026-08-07 — two checks that could not see their own subject
+
+`bin/test-docs.sh` asserted that CI runs each checker by grepping the workflow
+for `bin/$b`. Both step `name:` lines contain that string verbatim — `name:
+fixture suite — bin/test-chunk-check.sh`. Stripping every `run: bash bin/…` line
+from a copy of the workflow left the check fully green on both scripts. A
+checker nothing runs is the whole of finding F3, reproduced inside the check
+written to prevent F3, where it was least likely to be looked for.
+
+The repository-layout check failed twice over in the same shape. It grepped the
+bare basename with `-F`, and `chunk-check.sh` is a substring of
+`test-chunk-check.sh`, so deleting the row for the one script that check most
+exists to protect left all three assertions green. And `md_section` runs to the
+next `## `, sweeping in twenty lines of trailing prose that happen to say
+`bin/test-docs.sh` — enough to keep that row's assertion green with the entire
+diagram deleted. Both reproduced by mutation before either was touched.
+
+The lesson is about when these were written, not what they say. All three checks
+landed in the same session as the fixes they guard, and each inherited the blind
+spot of the thing it was checking — a substring where a row was meant, a mention
+where an invocation was meant. A guard written while looking at the defect tends
+to match the defect's shape rather than the property. The delete-the-check
+mutation trial is what separates the two, and it is cheap; it was run on the
+behavioural fixes that day and not on the doctrine checks.
+(2026-08-07 PR review, findings 3 and 6.)
+
+## 2026-08-07 — the numbers this remediation stated by hand
+
+The entry below measures the install payload instead of recalling it, and the
+same day's work stated two new numbers by hand and got both wrong.
+
+Two prose claims called the fixture suite "278-assertion". Measured at the commit
+that wrote them: the suite reported **282**, the pre-PR merge base reported 273,
+and a static count of assertion call sites there gave 268. 278 was none of the
+three — it matched neither the before nor the after, in the remediation whose
+argument is numbers taken rather than recalled. And the payload figure was an
+exact measurement when written, then three later commits in the same branch moved
+it, spending 4 KB of a 10 KB drift budget before the branch even merged.
+
+The changelog entry keeps a number, corrected to what was true when it was
+written, because a changelog entry is a historical record. The workflow comment
+loses its count entirely rather than gaining a corrected one. Nothing measured
+that figure and nothing cheaply could — it exists only once the suite has run,
+which is a minute of CI to establish a number no decision rests on, and it had
+already drifted twice inside a week. Deleting the claim removes the drift
+surface; correcting it only reloads it. The suite prints its own count on every
+run, which is where a reader should get it.
+
+"Re-measured on every push" also overstated the mechanism: `bin/test-docs.sh`
+checks that sentence against a ±10 KB band, it never rewrites it. The sentence
+now says so. (2026-08-07 PR review, finding 5.)
+
+## 2026-08-07 — the install command, one level further down
+
+The allowlist added earlier the same day held its "nothing else" claim for a
+first-time install and failed it twice over otherwise.
+
+The README tells existing users to upgrade by re-running the block, and `rsync`
+does not remove what it finds at the destination. So every install made by the
+denylist-era command kept its `.claude/`, `.github/` and stray `docs/` trees
+through every subsequent upgrade — the claim was false for exactly the readers
+who had been following the instructions longest, and the check could not see it
+because it redirects `HOME` to a virgin scratch dir and therefore only ever
+measured the first-time path. `--delete` does not close this: it prunes the
+directories rsync transfers, and the destination root is not one of them in this
+argument form. Both halves were tested before the fix was chosen. The block now
+clears its destination, which is also the portable answer — it does not depend
+on which rsync the reader has, the same reasoning that put `mkdir -p` there
+rather than `--mkpath`.
+
+And the allowlist named *directories*, which is still a denylist one level down.
+`rsync` does not read `.gitignore`, so a `__pycache__` under `references/` or an
+editor swapfile under `bin/` shipped into real installs, and reddened the new
+exact file-count assertion on any clone that happened to be dirty — a failure
+that accuses the documentation when the clone is merely untidy. Restoring
+`--exclude` entries would rebuild the same defect a level further down, so the
+copy is driven from `git ls-files`: the one definition of what this repository
+contains that cannot silently gain a member. `--error-unmatch` keeps a
+wrong-directory paste loud, naming every path it could not find, where a bare
+`--files-from` would have quietly installed nothing.
+
+The check compares an install against its clone's own tracked set rather than
+against a list of stray shapes, for the reason the whole entry is about: a
+seeded `templates/scratch-notes.md` is in the fixture precisely because no
+exclude list would ever have named it. (2026-08-07 PR review, findings 1 and 4.)
+
+## 2026-08-07 — verify never asked its green log freeze's question
+
+An exit code is the wrapper's; a `FAILED` or `ERROR` line is the suite's, and it
+is the suite that was asked. `freeze` has scanned its red log for both since the
+hoists recorded below. `verify` scanned its green log for neither: `oracle_ids …
+FAILED` and `oracle_error_lines` had exactly one call site each, both on the red
+log, and the green-log `PASSED` scan sat inside `if [ "$n_red" -gt 0 ]`.
+
+Two live shapes followed. A chunk frozen at the exit-code tier — still a legal
+tier, and where every exit-code-only oracle lands — reached `verified` against a
+wrapper that exits 0 while its own output reports a failed test and a collection
+error, with nothing inspecting that log at all. At the node-id tier, a test that
+broke beside the frozen ids stayed invisible so long as those ids cleared,
+because "did the frozen red turn green" is not "is this run green" and only the
+first was ever being asked. Cases 11b and 11c reproduce them; both reached
+`stage=verified` before the fix.
+
+This is the third instance of one class in four days. The entry at the bottom of
+this date hoists the ERROR scan out of the node-id branch; the one above it
+hoists the PASSED scan for the same reason; this is the same shape one op to the
+right, and it was found by a reviewer rather than by the two fixes that should
+have generalised. The four scans are now a single named helper called from both
+ops, which is the actual defect being fixed — the file had grown a partial copy
+of this check three times, eighteen lines apart in one case, and proximity has
+not once been the comparator.
+
+**Behaviour change worth noting on upgrade:** a chunk that passed `verify`
+against a dishonest wrapper will now fail it. That is the point, and it is the
+only change in this round that can redden a chunk which was green yesterday.
+(2026-08-07 PR review, finding 2.)
+
 ## 2026-08-07 — the first CI run found the install broken on Linux
 
 The workflow added three entries below went red on its first execution, on the
