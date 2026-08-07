@@ -7,6 +7,41 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the green-at-birth refusal, hoisted the way the ERROR check was
+
+The 2026-08-04 entry below hoisted the collection-ERROR check out of the
+node-id-capture branch. The `PASSED` scan six lines further down was left where
+it was. A codebase health audit reproduced the consequence live (2026-08-05):
+an oracle printing `PASSED tests/chunk/t.py::test_a`, `PASSED …::test_b` and
+exiting 1 — a wrapper whose trailing non-test step fails, or a runner exiting
+non-zero for a non-assertion reason — reached `stage=approved`. Both tests were
+green before the feature existed, so the oracle asserted nothing about the
+feature's absence, and `freeze` certified it as calibrated anyway. That is the
+precise failure non-negotiable #1 exists to refuse.
+
+The mechanism is the same as the ERROR case and so is the reason it hid.
+`red_ids` is built from `FAILED` and `ERROR` only, so a run where every
+reporting test passed parsed no red ids, took the `else` branch, and was never
+inspected. Case 26 could not reach the shape: `birth.sh` always leaves a
+`FAILED` id behind, which is exactly what made the branch reachable and the hole
+invisible — the "passes for the wrong reason" class again, found this time in
+the remediation for the previous instance of itself.
+
+The `PASSED` scan now runs unconditionally, before the id capture. The
+exit-code-tier warning that fired in this shape was false in the bargain — it
+announced "no per-test node-ids in the oracle output" with two node-ids printed
+directly above it — so it now speaks to the absence of *red* ids when ids
+parsed, and keeps its original wording only when none did. Absence of red ids is
+not absence of ids, and the difference is the evidence tier.
+
+Case 26b in `bin/test-chunk-check.sh`, on a new `allpass.sh` fixture oracle.
+Mutation-tested twice: re-nesting the scan reddens all five of 26b's assertions,
+and dropping only the warning's new branch reddens exactly the one that names
+it. One of 26b's assertions was itself written wrong first — matching the bare
+node-id, which the oracle echoes into the same captured output, so it passed
+against the unfixed script; it now matches with the refusal's own indent. Case
+21's tracked-oracle count moved 6 → 7 with the new fixture script.
+
 ## 2026-08-04 — the collection-ERROR check: two defects, one of them a hole
 
 `freeze` refuses a red run that reports collection or setup `ERROR`s — red for

@@ -302,6 +302,17 @@ new_fixture() { # new_fixture <name> [oracle_cmd] [tracked|untracked] [size_clas
     'exit 1' \
     > "$repo_dir/tests/chunk/birth.sh"
 
+  # Green at birth with NO red node-id to parse: every test that reported
+  # reported PASSED, and the run still exited non-zero — a wrapper whose
+  # trailing non-test step fails, or a runner that exits non-zero for a
+  # non-assertion reason. birth.sh cannot reach this: it always leaves a FAILED
+  # id behind. See case 26b.
+  printf '%s\n' \
+    'echo "PASSED tests/chunk/t.py::test_a"' \
+    'echo "PASSED tests/chunk/t.py::test_b"' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/allpass.sh"
+
   # Red for the wrong reason: the tests never ran.
   printf '%s\n' \
     'echo "ERROR tests/chunk/t.py::test_a - fixture (db) not found"' \
@@ -592,7 +603,11 @@ expect "20c small chunk, blanks tolerated but no Verdict: freeze refused" 1 "no 
 #      pass while the fixture quietly tracked the docs anyway, proving nothing.
 d="$(new_fixture case21 'bash tests/chunk/oracle.sh' untracked)"
 assert_eq "21 untracked docs: nothing under docs/chunks is tracked" "$(tracked_count "$d" docs/chunks)" "0"
-assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "6"
+# The literal is new_fixture's oracle-script count, so it moves whenever a case
+# needs a new oracle dialect (6 -> 7 on 2026-08-07, adding allpass.sh). Left as
+# a literal deliberately: it went red the moment the count changed, which is the
+# assertion working. Deriving it from the directory would make it pass at 0 too.
+assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "7"
 expect "21 untracked docs: readiness pins the baseline" 0 "stage=ready"    -- chunk_check "$d" readiness
 expect "21 untracked docs: freeze pins the oracle"      0 "stage=approved" -- chunk_check "$d" freeze
 implement "$d"
@@ -670,6 +685,34 @@ assert_eq "25 older schema: the old key is really gone"   "$(state_get "$d" 'has
 d="$(new_fixture case26 'bash tests/chunk/birth.sh')"
 quiet_check "$d" readiness
 expect "26 green-at-birth test in a red run: freeze fails, naming it" 1 "green-at-birth tests" -- chunk_check "$d" freeze
+
+# 26b — the same refusal one tier down, where it used to disappear. Every test
+#       that reported reported PASSED and the run still exited non-zero, so no
+#       FAILED/ERROR id parses — and the PASSED scan sat INSIDE the branch that
+#       captures those ids, exactly where the collection-ERROR check sat until
+#       2026-08-04. That fix hoisted the ERROR scan and left this one behind:
+#       the run where nothing asserts anything was the one run the flagship
+#       refusal never inspected. A live probe froze such an oracle at
+#       stage=approved (2026-08-05 audit, F1). Case 26 cannot reach the shape —
+#       birth.sh always leaves a FAILED id to parse.
+d="$(new_fixture case26b 'bash tests/chunk/allpass.sh')"
+quiet_check "$d" readiness
+out="$(chunk_check "$d" freeze 2>&1)"; rc=$?
+assert_eq       "26b all-PASSED red-exit run: freeze fails"  "$rc" "1"
+assert_contains "26b and names the green-at-birth tests"     "$out" "green-at-birth tests"
+# Matched with the refusal's own 8-space indent, not bare. The oracle echoes
+# "PASSED tests/chunk/t.py::test_b" into the same captured output, so the bare
+# node-id is present whether or not the check fires — the assertion passed on
+# the unfixed script when it was written that way.
+assert_contains "26b naming the ones no red id accompanied" \
+  "$out" "        tests/chunk/t.py::test_b"
+# And the WARN was false in this shape: it reported "no per-test node-ids" with
+# two of them in the output, because it spoke to the absence of RED ids while
+# claiming the absence of any. The exit-code tier is a real tier; announcing it
+# over parsed ids misdescribes the evidence at the moment it is pinned.
+assert_absent   "26b the no-node-ids warning does not fire when ids are present" \
+  "$out" "no per-test node-ids"
+assert_eq       "26b the oracle is not pinned" "$(state_get "$d" .stage)" "ready"
 
 # 27 — red for the wrong reason: collection or fixture failure, no test ran.
 d="$(new_fixture case27 'bash tests/chunk/collect.sh')"

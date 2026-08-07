@@ -1219,17 +1219,35 @@ freeze)
     printf '%s\n' "$err_lines" | sed 's/^/        /'
   fi
 
+  # Green at birth, checked at EVERY node-id tier — the same hoist, for the same
+  # reason, as the ERROR scan above. This one was left nested when that one was
+  # lifted on 2026-08-04, and it failed in the mirror-image way: `red_ids` is
+  # built from FAILED and ERROR only, so a run where every reporting test PASSED
+  # and the wrapper still exited non-zero parsed no red ids, took the else branch
+  # and never looked. That run is the one where the oracle asserts *nothing*
+  # about the feature's absence — the precise thing non-negotiable #1 refuses —
+  # and freeze was certifying it as calibrated. Reproduced live 2026-08-05
+  # (health audit F1); pinned by case 26b, which case 26 cannot reach because
+  # birth.sh always leaves a FAILED id behind to make the branch reachable.
+  green_at_birth="$(oracle_ids "$red_log" PASSED)"
+  if [ -n "$green_at_birth" ]; then
+    fail "green-at-birth tests — these passed before the feature exists, so they assert nothing:"
+    printf '%s\n' "$green_at_birth" | sed 's/^/        /'
+  fi
+
   red_ids="$(oracle_ids "$red_log" FAILED; oracle_ids "$red_log" ERROR)"
   red_ids="$(printf '%s' "$red_ids" | sort -u)"
   id_source="unparsed"
   if [ -n "$red_ids" ]; then
     id_source="pytest-summary"
     pass "oracle red node-ids captured: $(printf '%s\n' "$red_ids" | wc -l | tr -d ' ')"
-    green_at_birth="$(oracle_ids "$red_log" PASSED)"
-    if [ -n "$green_at_birth" ]; then
-      fail "green-at-birth tests — these passed before the feature exists, so they assert nothing:"
-      printf '%s\n' "$green_at_birth" | sed 's/^/        /'
-    fi
+  elif [ -n "$green_at_birth" ]; then
+    # Ids parsed; none of them red. The exit-code-tier warning below claims the
+    # output carries no node-ids, and printing that with node-ids listed
+    # directly above it describes the evidence wrongly at the moment it is
+    # weighed. Absence of RED ids is not absence of ids.
+    warn "the oracle reported per-test node-ids, but none of them RED — the run exited"
+    warn "  non-zero while every test that reported reported PASSED (listed above)."
   else
     warn "no per-test node-ids in the oracle output — evidence is exit-code only."
     warn "  (pytest emits them via PYTEST_ADDOPTS=-rA unless oracle_cmd sets its own -r.)"
