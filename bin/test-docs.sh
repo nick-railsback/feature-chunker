@@ -242,6 +242,24 @@ for f in "$ROOT"/bin/*.sh; do
   assert_contains "README's repository layout names bin/$b" "$LAYOUT" "$b"
 done
 
+# --- the shipped seed carries what the changelog says it carries ------------
+# references/setup.md calls the field log's header "the single authoritative
+# copy" of the demotion rule, and the demotion rule is the one mechanism that
+# adapts ceremony downward from data. On 2026-08-03 it gained the streak-pooling
+# caveat — and the caveat landed only in the operator-local file at
+# ~/.claude/feature-chunker-field-log.md, which by design never travels. Every
+# install since stamped a seed without it (2026-08-05 audit, F6).
+#
+# The operator-local copy cannot be checked from here and should not be: it is
+# machine-local evidence, deliberately outside every repo. The shipped seed is
+# the half that can be checked, and the half that reaches new installs.
+
+SEED_RULE="$(md_section "$ROOT/templates/field-log.md" "Demotion rule")"
+[ -n "$SEED_RULE" ] && ok "the field-log seed states the demotion rule" \
+  || no "the field-log seed states the demotion rule"
+assert_contains "the seed's demotion rule carries the streak-pooling caveat" \
+  "$SEED_RULE" "pooled"
+
 # --- CI runs every checker --------------------------------------------------
 # A checker nothing runs automatically is an instruction to remember, which is
 # the whole of finding F3 and the thing this repository argues against

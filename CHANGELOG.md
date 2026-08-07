@@ -7,6 +7,31 @@ field-log entries `(date, repo)`. The field log itself is machine-local by
 design (`templates/field-log.md` explains why it never travels with the
 skill), so the citations here are the durable half of each story.
 
+## 2026-08-07 — the streak-pooling caveat reaches the shipped seed
+
+The 2026-08-03 entry records the operator-local field-log header gaining a
+caveat: clean gates pooled across repos of different difficulty are not draws
+from one distribution. It landed only there. `~/.claude/feature-chunker-field-
+log.md` never travels — that is the design, and it is correct — so every install
+since has stamped `templates/field-log.md` without the caveat, under the header
+`references/setup.md` calls "the single authoritative copy" of the demotion
+rule. The improvement went to the copy that cannot ship and not to the one that
+does, which is the reverse of this repo's own canonical-flow rule.
+
+It is now the third bullet under "worth not re-deriving later", and it argues
+against the bullet above it: the n = 20 probability argument assumes twenty
+draws from one process, and these are twenty draws from several, with no
+randomization between them. The bias runs toward demoting — a stretch of
+familiar work in a familiar repo accumulates the streak faster than the
+arithmetic implies. Pooling is still the right call, because per-repo streaks
+would never reach any n at all, but the number it produces is a prompt to look
+rather than a result.
+
+`bin/test-docs.sh` asserts the seed's demotion rule carries it. The
+operator-local copy is not checked and should not be — it is machine-local
+evidence, deliberately outside every repo. The shipped half is the half that
+reaches new installs, and it was the half that was missing.
+
 ## 2026-08-07 — the one cheaply checkable number, measured instead of recalled
 
 The README said the install was "sixteen files, ~150 KB". The 2026-08-05 audit

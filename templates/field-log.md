@@ -72,7 +72,7 @@ demotion **events**: when demotion fires, write the date and the streak count
 it fired at. Revoke on the first post-demotion incident a gated plan would
 have caught — the computed streak restarts from the entries either way.
 
-Two things worth not re-deriving later:
+Three things worth not re-deriving later:
 
 - **`adjust` counts, not just `reject`.** `adjust` is the modal success case
   for a predict-then-compare gate: the human read the plan, disagreed, and the
@@ -87,6 +87,18 @@ Two things worth not re-deriving later:
   minutes does not need an aggressive retirement schedule; "retire a working
   gate" versus "keep a useless one for another ten chunks" is not a close
   comparison.
+- **The twenty are pooled across repos, and that is not one distribution.**
+  This log spans every project the operator runs, and a clean gate on a
+  codebase they know well is not the same trial as a clean gate on one they do
+  not. The probability argument above assumes twenty draws from a single
+  process; these are twenty draws from several, with different difficulties and
+  no randomization between them. The bias runs toward demoting: a stretch of
+  familiar work in a familiar repo accumulates the streak faster than the
+  arithmetic implies it should. So read a fired demotion as weaker evidence
+  than n = 20 sounds, and look at *where* the twenty came from before letting
+  it stand. Pooling them is still right — the alternative is per-repo streaks
+  that never reach any n at all — but the number it produces is a prompt to
+  look, not a result.
 
 **Demoted:** never.
 
