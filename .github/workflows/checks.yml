@@ -15,9 +15,25 @@
 # habit this repository spends its whole README arguing against.
 name: checks
 
+# Unfiltered `push` plus `pull_request` fires both events for every commit on a
+# same-repo branch, which is this repository's only flow — six jobs where three
+# suffice, including a duplicate macos-latest leg billed at the 10x minutes
+# multiplier. Filtering push to main leaves branch coverage to the PR event and
+# keeps main's own history checked after a merge. The one thing given up is a
+# branch with no PR open, which is not a state work here sits in.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# Without this, rapid pushes leave superseded runs executing to completion
+# against a commit nobody is waiting on. Cancelling is right for a PR, where
+# only the tip matters; it is not right for main, where each commit's own run
+# is the record that it was checked, so that case is excluded rather than
+# cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
