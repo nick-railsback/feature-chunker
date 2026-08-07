@@ -191,10 +191,15 @@ prose asking anyone to be careful.
   collection error → hash-pin every tracked file under `test_paths`, stage
   `approved`. Requires the predict stamp on `standard` chunks and refuses a
   top half that moved since it was stamped, at every size
-- `verify` — oracle unchanged, the frozen oracle re-run and green with the same
-  node-ids, diff ⊆ declared scope, suite green, no commits the review gate has
-  not approved → stage `verified`. Refuses on any bypassed chunk: no freeze
-  happened, so there is nothing here to check and the review gate is its exit
+- `verify` — oracle unchanged (a map comparison, so a test file **added or
+  removed** under `test_paths` is refused alongside a modified one), the frozen
+  oracle re-run and green with the same node-ids and no `FAILED` or collection
+  `ERROR` in its own output, diff ⊆ declared scope, suite green → stage
+  `verified`. Refuses on any bypassed chunk: no freeze happened, so there is
+  nothing here to check and the review gate is its exit. A commit before the
+  review gate does **not** refuse here — it is recorded as
+  `gates.review=premature` and answered for at `gate approved`, because a chunk
+  whose first verify follows a commit must still have a legal way forward
 - `log` — the retro's field-log line is really in the log file, carries a legal
   `gate:` verdict, a legal `closed:` value and no field left as `?` → record it
   in `state.json`. `closed:` is `pending` here and resolved at `feature-close`;
@@ -207,7 +212,9 @@ prose asking anyone to be careful.
   proved it shipped two regressions from an entry that already said "overdue"
 - `gate <verdict>` — record the human's review verdict; from `verified` or
   `bypassed` only → `done`, back to `approved`, or `blocked`. `approved`
-  re-reads the field log and refuses without the entry, then **hands off**: it
+  re-reads the field log and refuses without the entry, refuses a `premature`
+  `gates.review` without a note acknowledging the early commit
+  (`gate <chunk> approved "<note>"`), then **hands off**: it
   names the next chunk (first sibling directory whose `state.json` is not
   `done` — no markdown parsed) and prints a pasteable resume prompt, because
   `done` is terminal for the chunk and used to be a dead end for the session.

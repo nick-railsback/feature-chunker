@@ -187,9 +187,9 @@ an agent to be careful.
 | `readiness` | recorded state reconciles with disk **in both directions**, every declared field is legal, no `## Out of scope` exclusion asserts something about existing behaviour uncited, and the baseline suite is green |
 | `predict` | `predictions.md`'s top half is filled while its verdict is still blank — a file filled in one pass records a gate outcome about a plan that did not yet exist, and is refused |
 | `freeze` | the plan gate ran and returned `approve`, all four spec blocks agree with state, and `oracle_cmd` **executes red** with nothing green at birth and no collection `ERROR` |
-| `verify` | every pinned test file is byte-identical, the frozen `oracle_cmd` — **the same string** — now exits zero with every red node-id reported `PASSED`, the diff stays inside declared scope, the suite is green, and no commit precedes the review gate |
+| `verify` | the frozen test-hash map still matches exactly — no pinned file modified, and none added or removed under `test_paths` — the frozen `oracle_cmd` — **the same string** — now exits zero with no `FAILED` or `ERROR` of its own and every red node-id reported `PASSED`, the diff stays inside declared scope, and the suite is green. A commit before the review gate is *recorded* as `gates.review=premature`, not refused; `gate approved` is where it must be answered for |
 | `log` | the retro's field-log line is really on disk, carries the `gate:` verdict the state actually recorded, and leaves no field unanswered |
-| `gate <verdict>` | the stage is `verified` or `bypassed` — it cannot be used to skip the verification it is supposed to follow |
+| `gate <verdict>` | the stage is `verified` or `bypassed` — it cannot be used to skip the verification it is supposed to follow — and `approved` additionally requires the field-log entry, plus a note acknowledging the early commit whenever `gates.review` is `premature` |
 | `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or any pre-`done` stage with `--downgrade`, which corrects an over-escalation and records that it happened |
 | `block` / `status` | — (record a blocker with a required reason; print state) |
 

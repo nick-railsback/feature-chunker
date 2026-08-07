@@ -303,6 +303,55 @@ assert_contains "README's non-negotiables name the standard-only blind predictio
 # before bypass. The 2026-08-02 change made bypass run it and record the exit
 # code in bypass_suite — "that the script runs it is the point", precisely so it
 # stops being a step someone was told to remember.
+# The README's `verify` row listed "no commit precedes the review gate" under a
+# header reading "Refuses to proceed unless…", and verify performs no such
+# refusal: it warns, stamps `gates.review=premature`, and still reaches
+# `stage=verified` — which fixture case 15 pins deliberately, because a chunk
+# whose first verify follows a commit must still have a legal way forward. The
+# refusal lives in `gate approved`, which will not stamp `done` without an
+# explicit note. So the clause was asserted at the op that does not enforce it
+# and stated at neither of the ops that does. SKILL.md's bullet carried the same
+# reading. Both also omitted that the integrity check is a map comparison, so a
+# test file *added* or *removed* under test_paths is refused too, not only a
+# modified one. Found 2026-08-07 (PR review, finding 9).
+#
+# Checked as presence of the qualification in both documents, like the three
+# above — what must not happen is the two documents disagreeing about which op
+# refuses what.
+
+skill_bullet() { # skill_bullet <op> — the backstop bullet for an op in SKILL.md
+  awk -v op="- \`$1\`" '
+    index($0, op) == 1 { inb=1; print; next }
+    inb && /^- `/ { exit }
+    inb { print }
+  ' "$ROOT/SKILL.md"
+}
+
+# Line breaks are squashed out first. The two documents wrap at different
+# widths and a needle that straddles a wrap is a layout gate, not a contract
+# gate — the style-check failure mode this file's header refuses. What is being
+# compared is what each document says, not how it is set.
+squash() { tr '\n' ' ' | tr -s ' '; }
+
+README_VERIFY="$(grep -F '| `verify` |' "$ROOT/README.md" | squash)"
+README_GATE="$(grep -F '| `gate ' "$ROOT/README.md" | squash)"
+SKILL_VERIFY="$(skill_bullet verify | squash)"
+SKILL_GATE="$(skill_bullet 'gate <verdict>' | squash)"
+
+for pair in "README:$README_VERIFY" "SKILL.md:$SKILL_VERIFY"; do
+  doc="${pair%%:*}"; body="${pair#*:}"
+  assert_contains "$doc's verify contract records a premature commit rather than refusing it" \
+    "$body" "premature"
+  assert_contains "$doc's verify contract names the added-or-removed test file" \
+    "$body" "added or removed"
+done
+
+for pair in "README:$README_GATE" "SKILL.md:$SKILL_GATE"; do
+  doc="${pair%%:*}"; body="${pair#*:}"
+  assert_contains "$doc's gate contract names the premature-commit refusal it actually performs" \
+    "$body" "premature"
+done
+
 SKILL_OPS="$(md_section "$ROOT/SKILL.md" "Operations — load only the stage in play")"
 [ -n "$SKILL_OPS" ] && ok "SKILL.md states the operations table" \
   || no "SKILL.md states the operations table"
