@@ -20,6 +20,7 @@ small-sample failure in a different costume.
 From a clone of this repository, copy it to `~/.claude/skills/feature-chunker/`:
 
 ```zsh
+rm -rf ~/.claude/skills/feature-chunker
 mkdir -p ~/.claude/skills/feature-chunker
 rsync -a --exclude '.DS_Store' \
       SKILL.md CANDIDATES.md bin references templates \
@@ -38,6 +39,14 @@ It names what ships rather than excluding what does not. An exclude list is a
 denylist — anything later added to the repo root installs by default, which is
 how the previous form came to ship a `.claude/` directory and a stray `docs/`
 tree in an artifact whose whole argument is that nothing unexamined ships.
+
+The destination is cleared first because an allowlist governs only what rsync
+sends, not what is already at the other end: upgrading in place carried those
+same trees forward through every re-run, and `--delete` prunes the directories
+rsync transfers without touching the destination root. Nothing user-owned is
+under that path — the field log is deliberately outside it — so clearing and
+recopying is the whole upgrade, and test-docs.sh checks that an upgrade lands
+where a first-time install lands.
 
 The field log is **not** part of this copy — it lives at
 `~/.claude/feature-chunker-field-log.md` and survives reinstall untouched;

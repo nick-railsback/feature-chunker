@@ -386,6 +386,7 @@ From a clone of this repository — what installs is `SKILL.md`, `CANDIDATES.md`
 `bin/`, `references/`, `templates/`, and nothing else:
 
 ```zsh
+rm -rf ~/.claude/skills/feature-chunker
 mkdir -p ~/.claude/skills/feature-chunker
 rsync -a --exclude '.DS_Store' \
       SKILL.md CANDIDATES.md bin references templates \
@@ -400,6 +401,17 @@ editing it. That is not hypothetical — the exclude form this replaced shipped 
 else". `bin/test-docs.sh` extracts this exact block, runs it, and compares the
 result against that sentence, so the claim and the command cannot drift apart.
 
+**The destination is cleared first**, because an allowlist governs only what
+rsync sends and says nothing about what is already at the other end. Upgrading
+in place left every denylist-era install carrying the `.claude/` and `docs/`
+trees this section says are not there, and `--delete` does not reach them: it
+prunes the directories rsync transfers, and the destination root is not one of
+them. Nothing user-owned lives under that path — the field log sits at
+`~/.claude/feature-chunker-field-log.md`, deliberately outside the skill
+directory — so clearing and recopying is the whole upgrade. `bin/test-docs.sh`
+runs the block a second time over a seeded stale install and requires the
+result to equal a first-time install's.
+
 **`CANDIDATES.md` ships**, and is the one non-obvious member of that list. It is
 not repo-only bookkeeping: `chunk-check.sh` resolves it relative to the
 installed script, and `log` reads it to print the candidate classes that have
@@ -410,8 +422,8 @@ genuinely repo-only files are the ones with no read path from the harness:
 `README.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore`.
 
 The repo is canonical and the installed copy is an install, not a fork —
-improvements land here, versioned, and re-run the rsync (CHANGELOG.md is the
-record of what changed and why).
+improvements land here, versioned, and re-run the block above in full
+(CHANGELOG.md is the record of what changed and why).
 
 **User-level is the default, and the design assumes it.** The field log lives
 outside both the skill directory and any repo because the evidence base spans

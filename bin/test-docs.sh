@@ -156,6 +156,46 @@ got="$(cd "$INST" 2>/dev/null && ls -A | LC_ALL=C sort | tr '\n' ' ')"
 assert_eq "the install contains exactly what the README says it contains" \
   "$got" "CANDIDATES.md SKILL.md bin references templates "
 
+# --- the documented upgrade path --------------------------------------------
+# The check above redirects HOME to a virgin scratch dir, so it only ever
+# measures the first-time install. The README prescribes a different path for
+# everyone who already has the skill — "improvements land here, versioned, and
+# re-run the rsync" — and rsync writes into the destination without removing
+# what it finds there. So an install made by the denylist-era command kept its
+# `.claude/`, `.github/` and stray `docs/` through every subsequent upgrade, and
+# "nothing else" was false for exactly the population that had been following
+# the instructions longest (2026-08-07 PR review, finding 1).
+#
+# --delete does not close this. It prunes the directories rsync transfers, so a
+# file dropped from bin/ does go away, but the destination root is not itself a
+# transferred directory in this argument form and its extraneous entries
+# survive. The residue is on the destination side, so the command has to clear
+# the destination.
+#
+# Compared against the fresh install rather than a literal: an upgrade that
+# ends anywhere other than where a first-time install ends is the finding,
+# whatever the difference turns out to be.
+
+UPGRADE="$SCRATCH/upgrade"
+UPINST="$UPGRADE/.claude/skills/feature-chunker"
+mkdir -p "$UPINST/.claude/hooks" "$UPINST/.github/workflows" "$UPINST/docs/audits" "$UPINST/bin"
+touch "$UPINST/.claude/hooks/chunk-no-commit.py" \
+      "$UPINST/.github/workflows/checks.yml" \
+      "$UPINST/docs/audits/2026-08-05-health-audit.md" \
+      "$UPINST/README.md" \
+      "$UPINST/bin/dropped-last-release.sh"
+
+if upgrade_out="$( cd "$ROOT" && HOME="$UPGRADE" bash -c "$readme_cmd" 2>&1 )"; then
+  ok "the documented install command runs clean over an older install"
+else
+  no "the documented install command runs clean over an older install"
+  printf '%s\n' "$upgrade_out" | sed 's/^/      | /'
+fi
+
+assert_eq "re-running the install over an older one leaves a fresh install's tree" \
+  "$(cd "$UPINST" 2>/dev/null && find . | LC_ALL=C sort)" \
+  "$(cd "$INST"   2>/dev/null && find . | LC_ALL=C sort)"
+
 # --- the one cheaply checkable number ---------------------------------------
 # The README said "sixteen files, ~150 KB" in a document that stakes its
 # comparison table on "numbers taken, not recalled". Measured at the 2026-08-05
