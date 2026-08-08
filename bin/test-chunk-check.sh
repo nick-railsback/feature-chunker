@@ -302,6 +302,46 @@ new_fixture() { # new_fixture <name> [oracle_cmd] [tracked|untracked] [size_clas
     'exit 1' \
     > "$repo_dir/tests/chunk/birth.sh"
 
+  # Green at birth with NO red node-id to parse: every test that reported
+  # reported PASSED, and the run still exited non-zero — a wrapper whose
+  # trailing non-test step fails, or a runner that exits non-zero for a
+  # non-assertion reason. birth.sh cannot reach this: it always leaves a FAILED
+  # id behind. See case 26b.
+  printf '%s\n' \
+    'echo "PASSED tests/chunk/t.py::test_a"' \
+    'echo "PASSED tests/chunk/t.py::test_b"' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/allpass.sh"
+
+  # The mirror of allpass.sh, one op to the right: honest red at freeze (no
+  # output at all, so the exit-code tier), then a green run whose exit code is
+  # the wrapper's and whose output is the suite's. Carries both contradictions
+  # a green run can hold — a FAILED node-id and a collection ERROR. See case 11b.
+  printf '%s\n' \
+    'if [ -f src/feature.txt ]; then' \
+    '  echo "PASSED tests/chunk/t.py::test_a"' \
+    '  echo "FAILED tests/chunk/t.py::test_b - still absent"' \
+    '  echo "ERROR tests/chunk/t.py::test_c - fixture (db) not found"' \
+    '  exit 0' \
+    'fi' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/dishonest.sh"
+
+  # Node-id tier, and still dishonest: the frozen red ids do turn green, and a
+  # third test fails beside them in the same run. nodes.sh cannot reach this —
+  # its green branch reports nothing but PASSED. See case 11c.
+  printf '%s\n' \
+    'if [ -f src/feature.txt ]; then' \
+    '  echo "PASSED tests/chunk/t.py::test_a"' \
+    '  echo "PASSED tests/chunk/t.py::test_b"' \
+    '  echo "FAILED tests/chunk/t.py::test_c - regressed"' \
+    '  exit 0' \
+    'fi' \
+    'echo "FAILED tests/chunk/t.py::test_a - feature absent"' \
+    'echo "FAILED tests/chunk/t.py::test_b - feature absent"' \
+    'exit 1' \
+    > "$repo_dir/tests/chunk/regressed.sh"
+
   # Red for the wrong reason: the tests never ran.
   printf '%s\n' \
     'echo "ERROR tests/chunk/t.py::test_a - fixture (db) not found"' \
@@ -487,6 +527,46 @@ implement "$d"
 set_state "$d" '.oracle_cmd = "true"'
 expect "11 oracle_cmd swapped after freeze: verify fails" 1 "oracle_cmd changed since freeze" -- chunk_check "$d" verify
 
+# 11b — case 26b's class, one op to the right. freeze scans the red log for
+#       ERROR and for PASSED unconditionally; verify scanned its green log for
+#       neither. `oracle_ids "$green_log" PASSED` was consulted only inside
+#       `n_red > 0`, and the FAILED and ERROR scans had exactly one call site
+#       each, both on the red log. So a chunk frozen at the exit-code tier —
+#       a legal tier, the one every exit-code-only oracle lands on — reached
+#       `verified` against a wrapper that exits 0 while its own output reports
+#       a failed test and a collection error. The exit code is the wrapper's;
+#       the FAILED line is the suite's, and it is the suite that was asked.
+#       PR #3 review, finding 2.
+d="$(new_fixture case11b 'bash tests/chunk/dishonest.sh')"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+assert_eq "11b frozen at the exit-code tier: no node-ids captured" \
+  "$(state_get "$d" '.oracle_red.node_ids | length')" "0"
+implement "$d"
+out="$(chunk_check "$d" verify 2>&1)"; rc=$?
+assert_eq       "11b green run reporting FAILED: verify fails" "$rc" "1"
+assert_contains "11b and says the exit code is not the suite's" \
+  "$out" "exited 0 while reporting FAILED"
+# Indented, per case 26b: run_oracle tees the oracle's own output into this
+# capture, so the bare node-id is present whether or not the check fires.
+assert_contains "11b naming the test that failed" "$out" "        tests/chunk/t.py::test_b"
+assert_contains "11b and the collection ERROR beside it" "$out" "green for the wrong reason"
+assert_eq       "11b the chunk is not stamped verified" "$(state_get "$d" .stage)" "approved"
+
+# 11c — and it is not only the exit-code tier. With frozen red ids present the
+#       green log IS read, but only for the PASSED that clears those ids: a
+#       test that broke alongside them reports FAILED into the same log and
+#       nothing looks. "Did the frozen red turn green" is not the question
+#       "is this run green", and only the first was ever being asked.
+d="$(new_fixture case11c 'bash tests/chunk/regressed.sh')"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+out="$(chunk_check "$d" verify 2>&1)"; rc=$?
+assert_eq       "11c a new FAILED beside passing frozen ids: verify fails" "$rc" "1"
+assert_contains "11c and the frozen ids did clear, so that is not what caught it" \
+  "$out" "frozen red node-id(s) now pass"
+assert_contains "11c naming the test that failed in this run" "$out" "        tests/chunk/t.py::test_c"
+assert_eq       "11c the chunk is not stamped verified" "$(state_get "$d" .stage)" "approved"
+
 # 12 — readiness on an in-flight chunk is reconcile-only
 d="$(new_fixture case12)"
 quiet_check "$d" readiness; quiet_check "$d" freeze
@@ -592,7 +672,12 @@ expect "20c small chunk, blanks tolerated but no Verdict: freeze refused" 1 "no 
 #      pass while the fixture quietly tracked the docs anyway, proving nothing.
 d="$(new_fixture case21 'bash tests/chunk/oracle.sh' untracked)"
 assert_eq "21 untracked docs: nothing under docs/chunks is tracked" "$(tracked_count "$d" docs/chunks)" "0"
-assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "6"
+# The literal is new_fixture's oracle-script count, so it moves whenever a case
+# needs a new oracle dialect (6 -> 7 on 2026-08-07 adding allpass.sh, 7 -> 9 the
+# same day adding dishonest.sh and regressed.sh). Left as a literal deliberately:
+# it went red the moment the count changed, which is the assertion working.
+# Deriving it from the directory would make it pass at 0 too.
+assert_eq "21 untracked docs: the oracle itself is still tracked"   "$(tracked_count "$d" tests/chunk)" "9"
 expect "21 untracked docs: readiness pins the baseline" 0 "stage=ready"    -- chunk_check "$d" readiness
 expect "21 untracked docs: freeze pins the oracle"      0 "stage=approved" -- chunk_check "$d" freeze
 implement "$d"
@@ -670,6 +755,34 @@ assert_eq "25 older schema: the old key is really gone"   "$(state_get "$d" 'has
 d="$(new_fixture case26 'bash tests/chunk/birth.sh')"
 quiet_check "$d" readiness
 expect "26 green-at-birth test in a red run: freeze fails, naming it" 1 "green-at-birth tests" -- chunk_check "$d" freeze
+
+# 26b — the same refusal one tier down, where it used to disappear. Every test
+#       that reported reported PASSED and the run still exited non-zero, so no
+#       FAILED/ERROR id parses — and the PASSED scan sat INSIDE the branch that
+#       captures those ids, exactly where the collection-ERROR check sat until
+#       2026-08-04. That fix hoisted the ERROR scan and left this one behind:
+#       the run where nothing asserts anything was the one run the flagship
+#       refusal never inspected. A live probe froze such an oracle at
+#       stage=approved (2026-08-05 audit, F1). Case 26 cannot reach the shape —
+#       birth.sh always leaves a FAILED id to parse.
+d="$(new_fixture case26b 'bash tests/chunk/allpass.sh')"
+quiet_check "$d" readiness
+out="$(chunk_check "$d" freeze 2>&1)"; rc=$?
+assert_eq       "26b all-PASSED red-exit run: freeze fails"  "$rc" "1"
+assert_contains "26b and names the green-at-birth tests"     "$out" "green-at-birth tests"
+# Matched with the refusal's own 8-space indent, not bare. The oracle echoes
+# "PASSED tests/chunk/t.py::test_b" into the same captured output, so the bare
+# node-id is present whether or not the check fires — the assertion passed on
+# the unfixed script when it was written that way.
+assert_contains "26b naming the ones no red id accompanied" \
+  "$out" "        tests/chunk/t.py::test_b"
+# And the WARN was false in this shape: it reported "no per-test node-ids" with
+# two of them in the output, because it spoke to the absence of RED ids while
+# claiming the absence of any. The exit-code tier is a real tier; announcing it
+# over parsed ids misdescribes the evidence at the moment it is pinned.
+assert_absent   "26b the no-node-ids warning does not fire when ids are present" \
+  "$out" "no per-test node-ids"
+assert_eq       "26b the oracle is not pinned" "$(state_get "$d" .stage)" "ready"
 
 # 27 — red for the wrong reason: collection or fixture failure, no test ran.
 d="$(new_fixture case27 'bash tests/chunk/collect.sh')"
@@ -1733,6 +1846,55 @@ assert_absent "69 a landed entry never warns, whatever its count" "$out" "Alread
 out="$(chunk_check_cand "$d" "$FIXROOT/case69-absent.md" log --log-path "$fl" 2>&1)"; rc=$?
 assert_eq     "69 a missing ledger is silent, not an error" "$rc" "0"
 assert_absent "69 and prints no escalation warning"         "$out" "escalation rule"
+
+# 69b — the DEFAULT resolution, which is the branch that actually shipped
+#       broken. Every assertion above overrides CHUNK_CHECK_CANDIDATES, so the
+#       SKILL_ROOT branch — the one every real install takes — had no case at
+#       all, and this suite runs from the repo, where the ledger is always
+#       present. That is how a documented install command excluding
+#       CANDIDATES.md disabled the escalation warning in every install made from
+#       it while the suite stayed green (2026-08-05 audit, F2). The script is
+#       run here from a scratch skill root, the way an install runs it.
+skill_root="$FIXROOT/skillroot"
+mkdir -p "$skill_root/bin"
+cp "$CHECK" "$skill_root/bin/chunk-check.sh"
+printf '%s\n' \
+  '## Open' \
+  '' \
+  '### Cross-chunk caller sweep' \
+  '' \
+  'Status: open · Occurrences: 3 · Last: 2026-08-02 skill-engine 21-eval-runs' \
+  > "$skill_root/CANDIDATES.md"
+
+d="$(new_fixture case69b)"
+quiet_check "$d" readiness; quiet_check "$d" freeze
+implement "$d"
+quiet_check "$d" verify
+write_field_log "$d" "$(log_line "$d" approve 01-x)"
+fl="$(field_log_path "$d")"
+
+# The `unset` is the point of the case, not housekeeping: with the variable
+# inherited from the operator's environment this would quietly re-test the
+# override that case 69 already covers, and pass while proving nothing.
+installed_log() { # installed_log — run `log` through the scratch skill root
+  ( cd "$d" && unset CHUNK_CHECK_CANDIDATES
+    bash "$skill_root/bin/chunk-check.sh" log "$CHUNK" --log-path "$fl" 2>&1 )
+}
+
+out="$(installed_log)"
+assert_contains "69b the ledger resolves beside the installed script, no override" \
+  "$out" "Cross-chunk caller sweep"
+assert_contains "69b and it is the installed copy that was read" \
+  "$out" "$skill_root/CANDIDATES.md"
+
+# The other half of the finding, and the reason it stayed invisible for three
+# days: an install that omits the ledger degrades in perfect silence. Asserting
+# the silence is what makes the install checks in bin/test-docs.sh load-bearing
+# — nothing else anywhere would notice the mechanism was gone.
+rm -f "$skill_root/CANDIDATES.md"
+out="$(installed_log)"; rc=$?
+assert_eq     "69b an install missing the ledger still succeeds" "$rc" "0"
+assert_absent "69b and says nothing about the mechanism it lost" "$out" "escalation rule"
 
 # 70 — out-of-scope exclusions that assert facts about existing behaviour.
 #      Non-negotiable #1 puts an oracle behind every acceptance criterion and

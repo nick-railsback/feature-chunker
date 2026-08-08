@@ -1,5 +1,7 @@
 # feature-chunker
 
+[![checks](https://github.com/nick-railsback/feature-chunker/actions/workflows/checks.yml/badge.svg)](https://github.com/nick-railsback/feature-chunker/actions/workflows/checks.yml)
+
 **Agile for agents.** A feature becomes documented *chunks*; each chunk moves
 through staged, resumable checkpoints where every transition is made by a script
 rather than by an agent's opinion of its own work.
@@ -160,13 +162,19 @@ findings-remediation workflow.
    execute the plan, the chunk is too big — split it.
 5. **Scope is declared, then enforced.** The diff must stay inside the declared
    paths. Expansion is a stop-and-surface, not a judgment call.
-6. **Two human gates, both instrumented.** Predict-then-compare on the plan;
-   review-before-commit on the diff. Gates earn their keep via the field log or
-   get demoted — by data, not by mood.
+6. **Two human gates, both instrumented.** Predict-then-compare on the plan —
+   blind on `standard` chunks, where `chunk-check.sh predict` stamps the
+   predictions before the plan is read; `small` chunks gate on read-and-verdict
+   alone (softened 2026-07-31). Review-before-commit on the diff. Gates earn
+   their keep via the field log or get demoted — by data, not by mood.
 7. **Ceremony must be proportionate.** Trivial work bypasses the lifecycle. The
    `bypass` op requires `size_class` to be exactly `trivial` and refuses from any
    stage past `ready`, so the escape hatch cannot quietly become "skip the
-   ceremony, I'm in a hurry."
+   ceremony, I'm in a hurry." Correcting an over-escalation spotted later is the
+   one exception, and it is explicit rather than quiet: `--downgrade` is legal
+   from any stage before `done` — except on a chunk already bypassed, or one
+   already trivial, where there is no over-escalation left to correct — and it
+   records that the correction happened.
 
 ---
 
@@ -178,14 +186,20 @@ an agent to be careful.
 
 | Op | Refuses to proceed unless… |
 |---|---|
-| `readiness` | `baseline_sha` resolves to a real commit; `spec.md`'s four fenced blocks equal their `state.json` counterparts **in both directions**; the declared `artifacts` mode matches what git is actually doing; `scope_paths` and `test_paths` are non-empty; `size_class` is one of three values; no `## Out of scope` exclusion asserts something about existing behaviour without citing a test or marking itself `(unverified)`; the baseline suite is green. Then it pins the baseline SHA and branch. |
-| `predict` | The stage is `ready`; `predictions.md`'s top half is filled and its verdict is still blank — a file filled in one pass, verdict included, is refused, because it records a gate outcome about a plan that did not yet exist. Then it stamps the top half's hash into `state.json`, noting whether a plan draft was on disk. |
-| `freeze` | The plan gate ran and returned `approve` (an `adjust` or `reject` verdict is refused outright, and an untouched `predictions.md` template is refused); the `predict` stamp exists on a `standard` chunk and any existing stamp's top half is byte-identical; all four spec blocks agree with state; `oracle_cmd` **executes with a non-zero exit**; no test reported `PASSED` in that run; no `ERROR` line appears in it. Then it hash-pins every tracked file under `test_paths` and records the red node-ids. |
-| `verify` | Every pinned test file is byte-identical; no test file was added or removed under `test_paths`; every changed path since baseline falls inside declared scope; the frozen `oracle_cmd` — **the same string** — now exits zero with every frozen red node-id reported `PASSED`; the full suite is green; no commits exist that the review gate has not approved. |
-| `log` | The chunk's field-log line is really on disk, carries the `gate:` verdict the state actually recorded (derived, so an adjusted gate cannot be logged as a clean approval), carries a legal `closed:` value, and leaves no field unanswered. It also prints the demotion streak — computed from the entries rather than hand-maintained, and counting only chunks a `feature-close` later marked `closed:clean` — and warns while any `CANDIDATES.md` entry is still open at two or more sightings. |
-| `gate <verdict>` | The stage is `verified` or `bypassed`. It cannot be used to skip the verification it is supposed to follow. |
-| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or, with `--downgrade`, any pre-`done` stage: an over-escalation is corrected and recorded rather than ground through gates nobody needs. |
+| `readiness` | recorded state reconciles with disk **in both directions**, every declared field is legal, no `## Out of scope` exclusion asserts something about existing behaviour uncited, and the baseline suite is green |
+| `predict` | `predictions.md`'s top half is filled while its verdict is still blank — a file filled in one pass records a gate outcome about a plan that did not yet exist, and is refused |
+| `freeze` | the plan gate ran and returned `approve`, all four spec blocks agree with state, and `oracle_cmd` **executes red** with nothing green at birth and no collection `ERROR` |
+| `verify` | the frozen test-hash map still matches exactly — no pinned file modified, and none added or removed under `test_paths` — the frozen `oracle_cmd` — **the same string** — now exits zero with no `FAILED` or `ERROR` of its own and every red node-id reported `PASSED`, the diff stays inside declared scope, and the suite is green. A commit before the review gate is *recorded* as `gates.review=premature`, not refused; `gate approved` is where it must be answered for |
+| `log` | the retro's field-log line is really on disk, carries the `gate:` verdict the state actually recorded, and leaves no field unanswered |
+| `gate <verdict>` | the stage is `verified` or `bypassed` — it cannot be used to skip the verification it is supposed to follow — and `approved` additionally requires the field-log entry, plus a note acknowledging the early commit whenever `gates.review` is `premature` |
+| `bypass` | `size_class` is exactly `trivial` and the stage is at most `ready` — or, with `--downgrade`, any stage before `done` other than a chunk already bypassed or already trivial, which corrects an over-escalation and records that it happened |
 | `block` / `status` | — (record a blocker with a required reason; print state) |
+
+**Each op's full contract — every clause, and the incident that earned it — is
+in [SKILL.md § The deterministic backstop](SKILL.md#the-deterministic-backstop).**
+The table above summarises deliberately rather than restating: the restatement
+is what drifted, twice in two days, and a summary that links cannot fall out of
+step with what it summarises.
 
 Three of those deserve to be called out, because they are the ones that close
 loopholes rather than check boxes:
@@ -370,21 +384,56 @@ Skills. The harness itself is a standalone script — nothing in
 
 ### 1. The skill
 
-From a clone of this repository — what installs is `SKILL.md`, `references/`,
-`bin/`, `templates/`, and nothing else:
+From a clone of this repository — what installs is `SKILL.md`, `CANDIDATES.md`,
+`bin/`, `references/`, `templates/`, and nothing else:
 
 ```zsh
-rsync -a --exclude '.git' --exclude '.DS_Store' \
-      --exclude 'README.md' --exclude 'LICENSE' \
-      --exclude 'CHANGELOG.md' --exclude 'CANDIDATES.md' \
-      --exclude '.gitignore' \
-      ./ ~/.claude/skills/feature-chunker/
+rm -rf ~/.claude/skills/feature-chunker
+mkdir -p ~/.claude/skills/feature-chunker
+git ls-files -z --error-unmatch SKILL.md CANDIDATES.md bin references templates \
+  | rsync -a --files-from=- --from0 . ~/.claude/skills/feature-chunker/
 ```
 
-The excludes matter: a repo-only file riding along is noise in an artifact
-whose whole argument is that nothing unexamined ships. The repo is canonical and
-the installed copy is an install, not a fork — improvements land here, versioned,
-and re-run the rsync (CHANGELOG.md is the record of what changed and why).
+**It names what ships rather than excluding what does not**, and that is the
+point: an exclude list is a denylist, so anything later added to the repo root
+installs by default and the sentence above stops being true without anyone
+editing it. That is not hypothetical — the exclude form this replaced shipped a
+`.claude/` directory and a stray `docs/` tree while still claiming "nothing
+else". `bin/test-docs.sh` extracts this exact block, runs it, and compares the
+result against that sentence, so the claim and the command cannot drift apart.
+
+**`git ls-files` decides what those names cover**, because naming five paths
+still left a denylist one level down: rsync does not read `.gitignore`, so a
+`__pycache__` under `references/` or an editor swapfile under `bin/` shipped
+into real installs and broke the file count below on any clone that happened to
+be dirty. The tracked set is the only definition of "what this repository is"
+that cannot silently acquire a member. `--error-unmatch` keeps the wrong-
+directory paste loud — it names every path it could not find and exits non-zero,
+where a bare copy would quietly install nothing.
+
+**The destination is cleared first**, because an allowlist governs only what
+rsync sends and says nothing about what is already at the other end. Upgrading
+in place left every denylist-era install carrying the `.claude/` and `docs/`
+trees this section says are not there, and `--delete` does not reach them: it
+prunes the directories rsync transfers, and the destination root is not one of
+them. Nothing user-owned lives under that path — the field log sits at
+`~/.claude/feature-chunker-field-log.md`, deliberately outside the skill
+directory — so clearing and recopying is the whole upgrade. `bin/test-docs.sh`
+runs the block a second time over a seeded stale install and requires the
+result to equal a first-time install's.
+
+**`CANDIDATES.md` ships**, and is the one non-obvious member of that list. It is
+not repo-only bookkeeping: `chunk-check.sh` resolves it relative to the
+installed script, and `log` reads it to print the candidate classes that have
+reached the escalation threshold. An install without it loses that warning in
+silence — `candidates_overdue` treats a missing ledger as "nothing overdue",
+which is correct behaviour and indistinguishable from an empty backlog. The
+genuinely repo-only files are the ones with no read path from the harness:
+`README.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore`.
+
+The repo is canonical and the installed copy is an install, not a fork —
+improvements land here, versioned, and re-run the block above in full
+(CHANGELOG.md is the record of what changed and why).
 
 **User-level is the default, and the design assumes it.** The field log lives
 outside both the skill directory and any repo because the evidence base spans
@@ -521,28 +570,17 @@ means restarting the chunk, not keeping its approval.
 
 ### State in the target repo
 
-```
-docs/chunks/<feature>/
-  feature.md              # epic: goal, constraints, sources, artifacts mode,
-                          #   context packs, chunk queue
-  <nn>-<slug>/
-    spec.md               # contract: goal, binary acceptance criteria (each
-                          #   citing its source), declared scope, test paths,
-                          #   size class
-    plan.md               # cold-executable plan + deviations log
-    predictions.md        # the human's pre-read predictions (plan gate)
-    retro.md              # audit-implementation findings
-    state.json            # stage, SHAs, branch, artifacts mode, oracle hashes
-                          #   + red evidence — script-managed
-    oracle-red.log        # the freeze-time red run — script-written
-    oracle-green.log      # the verify-time green run — script-written
-```
+Every chunk is a directory under `docs/chunks/<feature>/` holding its spec,
+plan, predictions and retro alongside a script-managed `state.json` and the two
+captured oracle runs. **The tree is drawn in
+[SKILL.md § State layout](SKILL.md#state-layout-in-the-target-repo)** — once,
+because it used to be drawn twice and the copies were what drifted.
 
-This tree is **in the repo working directory** whether or not it is committed.
-Never outside it: `chunk-check.sh` refuses a chunk directory outside the repo
-root, and an agent's write sandbox is typically the working directory, so state
-written under `~/` gets denied — and a denied write that looks like it worked is
-how state silently stops being kept.
+What matters here rather than there: the tree lives **in the repo working
+directory** whether or not it is committed, never outside it. `chunk-check.sh`
+refuses a chunk directory outside the repo root, and an agent's write sandbox is
+typically the working directory, so state written under `~/` gets denied — and a
+denied write that looks like it worked is how state silently stops being kept.
 
 ---
 
@@ -560,6 +598,8 @@ references/
 bin/
   chunk-check.sh                # the deterministic backstop — every guarantee
   test-chunk-check.sh           # the backstop's own oracle
+  test-docs.sh                  # the prose surfaces' oracle: the install
+                                #   command, and the contracts stated twice
 templates/
   feature.md  spec.md  plan.md  predictions.md  retro.md  state.json  field-log.md
 CHANGELOG.md                    # every earned change, cited to its incident
@@ -569,10 +609,16 @@ CANDIDATES.md                   # maintainer-sized proposals, with the
                                 #   entry is open at two or more sightings
 ```
 
-The part that installs into `~/.claude/skills/` is sixteen files, ~150 KB. None
-of it is a runtime cost until it fires: Claude Code loads only `SKILL.md`'s
-frontmatter — this README, the reference bodies, and the templates are read on
-demand or not at all.
+The part that installs into `~/.claude/skills/` is 18 files, ~371 KB — the count
+exactly and the size to ±10 KB, checked on every push by `bin/test-docs.sh`,
+which runs the install command above and weighs the result. It checks this
+sentence rather than rewriting it: the figure is still typed by hand, and what
+changed is that a wrong one now reddens CI instead of sitting here. The previous
+figure sat stale by more than 2× for as long as nobody checked it, in a document
+that stakes its comparison table on numbers taken rather than recalled. None of it is
+a runtime cost until it fires: Claude Code loads only `SKILL.md`'s frontmatter —
+this README, the reference bodies, and the templates are read on demand or not
+at all.
 
 ---
 

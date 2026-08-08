@@ -17,15 +17,43 @@ user-level one improves. Take it deliberately, and move the field log into the
 repo (see § The field log) — a per-developer log across a team is the same
 small-sample failure in a different costume.
 
-Copy this directory to `~/.claude/skills/feature-chunker/`:
+From a clone of this repository, copy it to `~/.claude/skills/feature-chunker/`:
 
-```
-rsync -a --exclude '.DS_Store' --exclude '.pytest_cache' --exclude '__pycache__' \
-  <src>/ ~/.claude/skills/feature-chunker/
+```zsh
+rm -rf ~/.claude/skills/feature-chunker
+mkdir -p ~/.claude/skills/feature-chunker
+git ls-files -z --error-unmatch SKILL.md CANDIDATES.md bin references templates \
+  | rsync -a --files-from=- --from0 . ~/.claude/skills/feature-chunker/
 ```
 
-The excludes matter: a stray `.DS_Store` or cache directory riding along is
-noise in an artifact whose whole argument is that nothing unexamined ships.
+This block and the README's are checked byte-identical by `bin/test-docs.sh`,
+which also runs it and compares the result against what the README claims
+installs. They were two different commands with two different results until
+2026-08-07, and the difference was `CANDIDATES.md`: the README's excluded it, so
+every install made from the README had a ledger read path pointing at a file
+that was not there. `candidates_overdue` treats a missing ledger as "nothing
+overdue", so the escalation warning simply never fired and nothing said so.
+
+It names what ships rather than excluding what does not. An exclude list is a
+denylist — anything later added to the repo root installs by default, which is
+how the previous form came to ship a `.claude/` directory and a stray `docs/`
+tree in an artifact whose whole argument is that nothing unexamined ships.
+
+`git ls-files` decides what those five names cover. Naming directories was still
+a denylist one level down: rsync does not read `.gitignore`, so a `__pycache__`
+under `references/`, or a swapfile under `bin/`, shipped into every install made
+from a clone that happened to be dirty. The tracked set is the one definition of
+this repository's contents that cannot silently gain a member, and
+`--error-unmatch` keeps a wrong-directory paste loud rather than installing
+nothing in silence.
+
+The destination is cleared first because an allowlist governs only what rsync
+sends, not what is already at the other end: upgrading in place carried those
+same trees forward through every re-run, and `--delete` prunes the directories
+rsync transfers without touching the destination root. Nothing user-owned is
+under that path — the field log is deliberately outside it — so clearing and
+recopying is the whole upgrade, and test-docs.sh checks that an upgrade lands
+where a first-time install lands.
 
 The field log is **not** part of this copy — it lives at
 `~/.claude/feature-chunker-field-log.md` and survives reinstall untouched;

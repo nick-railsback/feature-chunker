@@ -1,0 +1,89 @@
+# The repository's whole argument is that a guarantee living in prose is a
+# guarantee nobody runs. Until this file existed, its own fixture suite and its
+# delete-the-check mutation procedure were exactly that: things that happened
+# when someone remembered them, in the skill whose thesis is that instructions
+# to remember are not mechanisms. Named by the 2026-08-05 health audit (F3),
+# which is also the audit that found two live defects the suite would have kept
+# green.
+#
+# The assertion count this sentence used to carry is deliberately gone rather
+# than corrected. It was wrong on the day it was written and drifted twice more
+# inside the following week, because nothing measured it and nothing could
+# cheaply — the number only exists once the suite has run, which is a minute of
+# CI to establish a figure no decision rests on. The suite prints its own count
+# every time it runs. A number recalled in a comment beside it is exactly the
+# habit this repository spends its whole README arguing against.
+name: checks
+
+# Unfiltered `push` plus `pull_request` fires both events for every commit on a
+# same-repo branch, which is this repository's only flow — six jobs where three
+# suffice, including a duplicate macos-latest leg billed at the 10x minutes
+# multiplier. Filtering push to main leaves branch coverage to the PR event and
+# keeps main's own history checked after a merge. The one thing given up is a
+# branch with no PR open, which is not a state work here sits in.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Without this, rapid pushes leave superseded runs executing to completion
+# against a commit nobody is waiting on. Cancelling is right for a PR, where
+# only the tip matters; it is not right for main, where each commit's own run
+# is the record that it was checked, so that case is excluded rather than
+# cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    name: suites (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both legs report. A macOS-only failure is the interesting one — the
+      # suite claims to run "anywhere git and jq do", and this is what holds it
+      # to that. The maintainer develops on macOS, so ubuntu is the leg that
+      # covers the platform nobody was testing on.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: fixture suite — bin/test-chunk-check.sh
+        run: bash bin/test-chunk-check.sh
+
+      # Both suites run even when the first goes red. "Where it failed" is the
+      # distinction this repository keeps insisting matters more than "whether"
+      # — a run that stops at the first failure hides the rest of the picture
+      # for that push, and the next push starts from a partial answer.
+      #
+      # The guard belongs on this step and only this one. A step with no `if`
+      # carries an implicit success(); supplying one replaces it rather than
+      # adding to it. The only step preceding the fixture suite is the checkout,
+      # so carrying the same guard up there bought nothing and cost something:
+      # its sole effect was to run the suite against a checkout that had already
+      # failed, reporting "bin/test-chunk-check.sh: No such file or directory"
+      # over the top of the real cause. That is exactly the failure this file
+      # names elsewhere — a check that cannot say why it failed.
+      - name: doctrine checks — bin/test-docs.sh
+        if: ${{ !cancelled() }}
+        run: bash bin/test-docs.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --severity=warning is the gate deliberately, not laziness. Both scripts
+      # carry info-level findings on purpose: SC2016 fires on every
+      # single-quoted jq filter, where non-expansion is the entire point, and
+      # SC2015 on the `[ test ] && pass || fail` idiom used throughout. Gating
+      # on info would mean either papering over real advice with disable
+      # directives or rewriting correct code to please a linter — and a gate
+      # people route around is worse than one pitched where it can hold.
+      - name: shellcheck
+        run: shellcheck --severity=warning bin/*.sh
